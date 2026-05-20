@@ -584,3 +584,70 @@ fn lint_with_configured_path_but_no_html_files_errors() {
         .failure()
         .stderr(predicate::str::contains("no files found"));
 }
+
+#[test]
+fn lint_check_flags_md_file_as_prefer_html() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.md");
+    std::fs::write(&page, "# Title\n\nContent.").unwrap();
+    cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("prefer-html"));
+}
+
+#[test]
+fn lint_write_converts_md_to_html() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.md");
+    std::fs::write(&page, "# Title\n\nContent.").unwrap();
+    cmd()
+        .args(["lint", "--write", "--file"])
+        .arg(&page)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("converted to"));
+    assert!(!page.exists(), ".md file should be removed");
+    assert!(tmp.path().join("page.html").exists(), ".html file should be created");
+}
+
+#[test]
+fn lint_write_md_produces_valid_html_structure() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.md");
+    std::fs::write(&page, "# My Doc\n\nHello world.").unwrap();
+    cmd()
+        .args(["lint", "--write", "--file"])
+        .arg(&page)
+        .assert()
+        .success();
+    let html = std::fs::read_to_string(tmp.path().join("page.html")).unwrap();
+    assert!(html.contains("<!DOCTYPE html>"));
+    assert!(html.contains("<title>My Doc</title>"));
+    assert!(html.contains("Hello world"));
+}
+
+#[test]
+fn lint_write_md_merges_when_html_already_exists() {
+    let tmp = TempDir::new().unwrap();
+    let html_file = tmp.path().join("page.html");
+    let md_file = tmp.path().join("page.md");
+    std::fs::write(
+        &html_file,
+        "<html><body><article id=\"existing\"><h2>Old Content</h2></article></body></html>",
+    )
+    .unwrap();
+    std::fs::write(&md_file, "# New Section\n\nNew content.").unwrap();
+    cmd()
+        .args(["lint", "--write", "--file"])
+        .arg(&md_file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("merged into"));
+    assert!(!md_file.exists());
+    let merged = std::fs::read_to_string(&html_file).unwrap();
+    assert!(merged.contains("Old Content"), "existing content preserved");
+    assert!(merged.contains("New content"), "new markdown content added");
+}
