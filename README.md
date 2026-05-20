@@ -1,11 +1,14 @@
 # ctlgr
 
+[![CI](https://github.com/jezumbro/ctlgr-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jezumbro/ctlgr-cli/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/jezumbro/ctlgr-cli/graph/badge.svg)](https://codecov.io/gh/jezumbro/ctlgr-cli)
+
 A CLI for creating and searching `.html` catalog files, designed as an agent-friendly interface.
 
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ctlgr/ctlgr-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jezumbro/ctlgr-cli/main/install.sh | sh
 ```
 
 Installs a pre-built binary to `~/.local/bin`. Supports macOS (Intel + Apple Silicon) and
@@ -24,7 +27,7 @@ INSTALL_DIR=/usr/local/bin curl -fsSL .../install.sh | sh
 **From source** (requires Rust):
 
 ```sh
-cargo install --git https://github.com/ctlgr/ctlgr-cli
+cargo install --git https://github.com/jezumbro/ctlgr-cli
 ```
 
 ## Usage
