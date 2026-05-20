@@ -1,9 +1,10 @@
-# ctlgr
+# ctlgr — cataloger
 
 [![CI](https://github.com/jezumbro/ctlgr-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/jezumbro/ctlgr-cli/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jezumbro/ctlgr-cli/graph/badge.svg)](https://codecov.io/gh/jezumbro/ctlgr-cli)
 
-A CLI for creating and searching `.html` catalog files, designed as an agent-friendly interface.
+Agentic search for HTML files. Register directories of `.html` or `.md` catalog files and query
+them with CSS selectors, text search, or jq — from the terminal or from an AI agent.
 
 ## Install
 
