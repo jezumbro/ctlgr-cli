@@ -5,7 +5,7 @@ use std::time::Duration;
 
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
-const GITHUB_REPO: &str = "ctlgr/ctlgr-cli";
+const GITHUB_REPO: &str = "jezumbro/ctlgr-cli";
 const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
 
 pub fn current_version() -> Version {

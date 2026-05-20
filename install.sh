@@ -2,7 +2,7 @@
 # Install ctlgr — downloads the right pre-built binary from GitHub Releases.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/ctlgr/ctlgr-cli/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/jezumbro/ctlgr-cli/main/install.sh | sh
 #
 # Environment variables:
 #   VERSION     — specific version to install (default: latest)
@@ -10,7 +10,7 @@
 
 set -e
 
-REPO="ctlgr/ctlgr-cli"
+REPO="jezumbro/ctlgr-cli"
 VERSION="${VERSION:-}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
