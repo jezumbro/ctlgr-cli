@@ -651,3 +651,41 @@ fn lint_write_md_merges_when_html_already_exists() {
     assert!(merged.contains("Old Content"), "existing content preserved");
     assert!(merged.contains("New content"), "new markdown content added");
 }
+
+#[test]
+fn lint_writes_default_rules_to_existing_config() {
+    let tmp = TempDir::new().unwrap();
+    // Create a config file with no lint section
+    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<article><h2>Clean</h2></article>").unwrap();
+    cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .current_dir(&tmp)
+        .assert()
+        .success();
+    let config = std::fs::read_to_string(tmp.path().join(".ctlgr.json")).unwrap();
+    assert!(config.contains("\"lint\""), "lint section should be written");
+    assert!(config.contains("no-style-blocks"));
+    assert!(config.contains("prefer-html"));
+}
+
+#[test]
+fn lint_respects_disabled_rule_in_config() {
+    let tmp = TempDir::new().unwrap();
+    // Config with no-inline-styles disabled
+    std::fs::write(
+        tmp.path().join(".ctlgr.json"),
+        r#"{"paths":[],"lint":{"rules":["no-style-blocks","prefer-html"]}}"#,
+    )
+    .unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<h2 style=\"color:red\">Title</h2>").unwrap();
+    cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .current_dir(&tmp)
+        .assert()
+        .success(); // exits 0 because no-inline-styles is disabled
+}

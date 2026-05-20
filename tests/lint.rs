@@ -2,6 +2,7 @@ use ctlgr::lint::{
     check_html, convert_md_to_html, fix_html, md_html_path, md_to_html, md_to_html_fragment,
     merge_html,
 };
+use ctlgr::settings::LintConfig;
 use tempfile::TempDir;
 
 // ── check_html ─────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ fn snippet_truncated_at_80_chars() {
 #[test]
 fn fix_removes_style_block() {
     let html = "<article><style>h2 { color: red }</style><h2>Title</h2></article>";
-    let (fixed, violations) = fix_html(html, "f.html");
+    let (fixed, violations) = fix_html(html, "f.html", &LintConfig::default());
     assert_eq!(violations.len(), 1);
     assert!(!fixed.contains("<style>"));
     assert!(fixed.contains("<h2>Title</h2>"));
@@ -86,7 +87,7 @@ fn fix_removes_style_block() {
 #[test]
 fn fix_removes_inline_style() {
     let html = "<h2 style=\"font-weight: bold\">Title</h2>";
-    let (fixed, violations) = fix_html(html, "f.html");
+    let (fixed, violations) = fix_html(html, "f.html", &LintConfig::default());
     assert_eq!(violations.len(), 1);
     assert!(!fixed.contains("style="));
     assert!(fixed.contains("<h2>Title</h2>"));
@@ -95,7 +96,7 @@ fn fix_removes_inline_style() {
 #[test]
 fn fix_preserves_other_attributes() {
     let html = "<a href=\"/page\" style=\"color:red\" class=\"nav\">link</a>";
-    let (fixed, _) = fix_html(html, "f.html");
+    let (fixed, _) = fix_html(html, "f.html", &LintConfig::default());
     assert!(fixed.contains("href=\"/page\""));
     assert!(fixed.contains("class=\"nav\""));
     assert!(!fixed.contains("style="));
@@ -104,7 +105,7 @@ fn fix_preserves_other_attributes() {
 #[test]
 fn fix_handles_multiple_violations() {
     let html = "<div><style>body{}</style><p style=\"color:blue\">text</p></div>";
-    let (fixed, violations) = fix_html(html, "f.html");
+    let (fixed, violations) = fix_html(html, "f.html", &LintConfig::default());
     assert_eq!(violations.len(), 2);
     assert!(!fixed.contains("<style>"));
     assert!(!fixed.contains("style="));
@@ -114,7 +115,7 @@ fn fix_handles_multiple_violations() {
 #[test]
 fn fix_clean_file_unchanged() {
     let html = "<article id=\"intro\"><h2>Hello</h2><p>World</p></article>";
-    let (fixed, violations) = fix_html(html, "f.html");
+    let (fixed, violations) = fix_html(html, "f.html", &LintConfig::default());
     assert!(violations.is_empty());
     assert_eq!(fixed, html);
 }
@@ -122,7 +123,7 @@ fn fix_clean_file_unchanged() {
 #[test]
 fn fix_removes_single_quoted_inline_style() {
     let html = "<h2 style='color:red'>Title</h2>";
-    let (fixed, violations) = fix_html(html, "f.html");
+    let (fixed, violations) = fix_html(html, "f.html", &LintConfig::default());
     assert_eq!(violations.len(), 1);
     assert!(!fixed.contains("style="));
     assert!(fixed.contains("<h2>Title</h2>"));
@@ -139,7 +140,7 @@ fn check_detects_single_quoted_inline_style() {
 #[test]
 fn fix_style_block_trailing_newline_consumed() {
     let html = "<div><style>h2{}</style>\n<p>text</p></div>";
-    let (fixed, _) = fix_html(html, "f.html");
+    let (fixed, _) = fix_html(html, "f.html", &LintConfig::default());
     assert!(!fixed.contains("<style>"));
     // trailing newline after </style> is consumed; <p> directly follows <div>
     assert!(!fixed.contains("\n<p>"));
@@ -156,7 +157,7 @@ fn style_custom_element_not_flagged() {
 #[test]
 fn fix_style_custom_element_unchanged() {
     let html = "<div><style-custom>foo</style-custom><p>text</p></div>";
-    let (fixed, violations) = fix_html(html, "f.html");
+    let (fixed, violations) = fix_html(html, "f.html", &LintConfig::default());
     assert!(violations.is_empty());
     assert_eq!(fixed, html);
 }
