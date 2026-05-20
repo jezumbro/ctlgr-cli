@@ -235,15 +235,15 @@ fn search_attr_filter() {
 // ── update ────────────────────────────────────────────────────────────────────
 
 #[test]
-fn update_fails_gracefully_when_crate_not_published() {
-    // ctlgr is not yet on crates.io — update should fail with a clear message,
-    // not panic or hang.
+fn update_already_up_to_date_exits_zero() {
+    // The published release matches the binary version, so update reports
+    // "already up to date" and exits 0.
     cmd()
         .args(["update"])
         .timeout(std::time::Duration::from_secs(10))
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("latest version"));
+        .success()
+        .stdout(predicate::str::contains("already up to date"));
 }
 
 // ── search --md ───────────────────────────────────────────────────────────────
@@ -544,4 +544,43 @@ fn lint_write_clean_file_exits_zero_silently() {
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
+}
+
+#[test]
+fn lint_with_no_file_and_no_config_errors() {
+    let tmp = TempDir::new().unwrap();
+    // Write empty config to shadow any ancestor or global config
+    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    cmd()
+        .args(["lint"])
+        .current_dir(&tmp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no files specified"));
+}
+
+#[test]
+fn lint_via_configured_paths() {
+    let tmp = TempDir::new().unwrap();
+    let docs = tmp.path().join("docs");
+    std::fs::create_dir(&docs).unwrap();
+    std::fs::write(docs.join("a.html"), "<article><h2>Clean</h2></article>").unwrap();
+    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
+    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd().args(["lint"]).current_dir(&tmp).assert().success();
+}
+
+#[test]
+fn lint_with_configured_path_but_no_html_files_errors() {
+    let tmp = TempDir::new().unwrap();
+    let docs = tmp.path().join("docs");
+    std::fs::create_dir(&docs).unwrap();
+    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
+    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd()
+        .args(["lint"])
+        .current_dir(&tmp)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no files found"));
 }

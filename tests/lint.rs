@@ -114,3 +114,45 @@ fn fix_clean_file_unchanged() {
     assert!(violations.is_empty());
     assert_eq!(fixed, html);
 }
+
+#[test]
+fn fix_removes_single_quoted_inline_style() {
+    let html = "<h2 style='color:red'>Title</h2>";
+    let (fixed, violations) = fix_html(html, "f.html");
+    assert_eq!(violations.len(), 1);
+    assert!(!fixed.contains("style="));
+    assert!(fixed.contains("<h2>Title</h2>"));
+}
+
+#[test]
+fn check_detects_single_quoted_inline_style() {
+    let html = "<h2 style='color:red'>Title</h2>";
+    let violations = check_html(html, "f.html");
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].rule, "no-inline-styles");
+}
+
+#[test]
+fn fix_style_block_trailing_newline_consumed() {
+    let html = "<div><style>h2{}</style>\n<p>text</p></div>";
+    let (fixed, _) = fix_html(html, "f.html");
+    assert!(!fixed.contains("<style>"));
+    // trailing newline after </style> is consumed; <p> directly follows <div>
+    assert!(!fixed.contains("\n<p>"));
+}
+
+#[test]
+fn style_custom_element_not_flagged() {
+    // <style-custom> is not a <style> element and must not be treated as one
+    let html = "<div><style-custom>foo</style-custom><p>text</p></div>";
+    let violations = check_html(html, "f.html");
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn fix_style_custom_element_unchanged() {
+    let html = "<div><style-custom>foo</style-custom><p>text</p></div>";
+    let (fixed, violations) = fix_html(html, "f.html");
+    assert!(violations.is_empty());
+    assert_eq!(fixed, html);
+}
