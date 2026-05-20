@@ -45,14 +45,62 @@ pub fn touch_check_file(check_path: &Path) {
     let _ = std::fs::write(check_path, b"");
 }
 
-pub fn current_target() -> Result<&'static str> {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
+/// Resolve the binary target triple for a given OS and architecture.
+pub fn target_for(os: &str, arch: &str) -> Result<&'static str> {
+    match (os, arch) {
         ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
         ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
         ("linux", "x86_64") => Ok("x86_64-unknown-linux-musl"),
         ("linux", "aarch64") => Ok("aarch64-unknown-linux-musl"),
         (os, arch) => anyhow::bail!("unsupported platform: {os}/{arch}"),
     }
+}
+
+pub fn current_target() -> Result<&'static str> {
+    target_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Build the GitHub release download URL for a given version and target.
+pub fn release_url(version: &Version, target: &str) -> String {
+    format!(
+        "https://github.com/{GITHUB_REPO}/releases/download/v{version}/ctlgr-v{version}-{target}"
+    )
+}
+
+/// Write `bytes` to `dest`, using an adjacent `.._new` temp file and an
+/// atomic rename. Sets executable permissions on Unix.
+pub fn install_binary(bytes: &[u8], dest: &Path) -> Result<()> {
+    let tmp = dest.with_extension("_new");
+    std::fs::write(&tmp, bytes).context("writing new binary")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
+            .context("setting permissions on new binary")?;
+    }
+
+    std::fs::rename(&tmp, dest).with_context(|| {
+        format!(
+            "replacing {} — try with sudo if permission is denied",
+            dest.display()
+        )
+    })?;
+    Ok(())
+}
+
+/// Core download + install logic with injected HTTP and destination path so
+/// tests can run without real network access or touching the running binary.
+pub fn download_and_install_impl(
+    version: &Version,
+    download: impl Fn(&str) -> Result<Vec<u8>>,
+    dest: &Path,
+) -> Result<()> {
+    let target = current_target()?;
+    let url = release_url(version, target);
+    println!("downloading {url}");
+    let bytes = download(&url)?;
+    install_binary(&bytes, dest)
 }
 
 /// Returns a notice string if a newer version is available, `None` otherwise.
@@ -97,6 +145,19 @@ pub fn run_update_impl(
     Ok(())
 }
 
+/// Print a notice to stderr if a newer version is available. Uses injected
+/// `fetch` and `check_path` so tests can exercise the print path without
+/// a real network call.
+pub fn check_and_notify_impl(
+    check_path: &Path,
+    interval: Duration,
+    fetch: impl Fn() -> Result<Version>,
+) {
+    if let Some(msg) = check_update_message(check_path, interval, fetch) {
+        eprintln!("{msg}");
+    }
+}
+
 // ── I/O wrappers (thin, not unit-tested) ─────────────────────────────────────
 
 pub fn fetch_latest_version() -> Result<Version> {
@@ -121,54 +182,31 @@ pub fn fetch_latest_version() -> Result<Version> {
         .context("invalid version tag from GitHub")
 }
 
-fn download_and_install(version: &Version) -> Result<()> {
-    let target = current_target()?;
-    let url = format!(
-        "https://github.com/{GITHUB_REPO}/releases/download/v{version}/ctlgr-v{version}-{target}"
-    );
-    println!("downloading {url}");
-
+fn http_download(url: &str) -> Result<Vec<u8>> {
     let agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(60)))
         .build()
         .new_agent();
-    let bytes = agent
-        .get(&url)
+    agent
+        .get(url)
         .header("User-Agent", &format!("{CRATE_NAME}/{CURRENT}"))
         .call()
         .context("downloading binary")?
         .body_mut()
         .read_to_vec()
-        .context("reading downloaded binary")?;
+        .context("reading downloaded binary")
+}
 
-    let current_exe =
-        std::env::current_exe().context("could not determine current executable path")?;
-    let tmp = current_exe.with_extension("_new");
-    std::fs::write(&tmp, &bytes).context("writing new binary")?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
-            .context("setting permissions on new binary")?;
-    }
-
-    std::fs::rename(&tmp, &current_exe).with_context(|| {
-        format!(
-            "replacing {} — try with sudo if permission is denied",
-            current_exe.display()
-        )
-    })?;
-    Ok(())
+fn download_and_install(version: &Version) -> Result<()> {
+    let dest = std::env::current_exe().context("could not determine current executable path")?;
+    download_and_install_impl(version, http_download, &dest)
 }
 
 /// Prints a notice to stderr if a newer version is available. Respects a
 /// 24-hour cooldown so the check fires at most once per day.
 pub fn check_and_notify() {
     if let Ok(path) = global_check_path() {
-        if let Some(msg) = check_update_message(&path, CHECK_INTERVAL, fetch_latest_version) {
-            eprintln!("{msg}");
-        }
+        check_and_notify_impl(&path, CHECK_INTERVAL, fetch_latest_version);
     }
 }
 
