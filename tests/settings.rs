@@ -2,7 +2,8 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use ctlgr::settings::{
-    expand_paths, find_config_from, load_from, local_config_path_from, write_to, Settings,
+    expand_paths, find_config_from, load_from, local_config_path_from, write_to, LintConfig,
+    Settings,
 };
 
 #[test]
@@ -12,7 +13,7 @@ fn settings_default_has_empty_paths() {
 
 #[test]
 fn settings_roundtrip() {
-    let s = Settings { paths: vec!["a".into(), "b".into()] };
+    let s = Settings { paths: vec!["a".into(), "b".into()], lint: None };
     let json = serde_json::to_string(&s).unwrap();
     let s2: Settings = serde_json::from_str(&json).unwrap();
     assert_eq!(s2.paths, s.paths);
@@ -103,7 +104,7 @@ fn write_to_creates_parent_dirs() {
 fn write_to_serializes_and_load_from_roundtrips() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("c.json");
-    let s = Settings { paths: vec!["mypath".into()] };
+    let s = Settings { paths: vec!["mypath".into()], lint: None };
     write_to(&s, &path).unwrap();
     let s2 = load_from(&path).unwrap();
     assert_eq!(s2.paths, vec!["mypath"]);
@@ -143,7 +144,7 @@ fn expand_paths_empty_returns_empty() {
 fn expand_paths_finds_html_files() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("a.html"), "<h1>hi</h1>").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()] };
+    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
     let files = expand_paths(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("a.html")));
 }
@@ -152,7 +153,7 @@ fn expand_paths_finds_html_files() {
 fn expand_paths_finds_md_files() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("readme.md"), "# hi").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()] };
+    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
     let files = expand_paths(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("readme.md")));
 }
@@ -162,7 +163,7 @@ fn expand_paths_ignores_other_extensions() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("script.js"), "").unwrap();
     std::fs::write(tmp.path().join("page.html"), "").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()] };
+    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
     let mut files = expand_paths(&s).unwrap();
     files.retain(|f| !f.ends_with(".js"));
     assert_eq!(files.len(), 1);
@@ -175,7 +176,7 @@ fn expand_paths_recurses_into_subdirs() {
     let deep = tmp.path().join("a").join("b");
     std::fs::create_dir_all(&deep).unwrap();
     std::fs::write(deep.join("deep.html"), "").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()] };
+    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
     let files = expand_paths(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("deep.html")));
 }
@@ -191,6 +192,7 @@ fn expand_paths_multiple_dirs() {
             t1.path().to_string_lossy().into_owned(),
             t2.path().to_string_lossy().into_owned(),
         ],
+        lint: None,
     };
     let files = expand_paths(&s).unwrap();
     assert_eq!(files.len(), 2);
@@ -198,7 +200,63 @@ fn expand_paths_multiple_dirs() {
 
 #[test]
 fn expand_paths_nonexistent_dir_returns_empty() {
-    let s = Settings { paths: vec!["/nonexistent/xyz/abc/definitely/not/real".into()] };
+    let s = Settings { paths: vec!["/nonexistent/xyz/abc/definitely/not/real".into()], lint: None };
     let files = expand_paths(&s).unwrap();
     assert!(files.is_empty());
+}
+
+// ── LintConfig ─────────────────────────────────────────────────────────────
+
+#[test]
+fn lint_config_default_enables_all_rules() {
+    let cfg = LintConfig::default();
+    assert!(cfg.is_enabled("no-style-blocks"));
+    assert!(cfg.is_enabled("no-inline-styles"));
+    assert!(cfg.is_enabled("prefer-html"));
+}
+
+#[test]
+fn lint_config_is_enabled_returns_false_for_unknown_rule() {
+    let cfg = LintConfig::default();
+    assert!(!cfg.is_enabled("unknown-rule"));
+}
+
+#[test]
+fn lint_config_disabled_rule_not_enabled() {
+    let cfg = LintConfig { rules: vec!["no-style-blocks".into()] };
+    assert!(cfg.is_enabled("no-style-blocks"));
+    assert!(!cfg.is_enabled("no-inline-styles"));
+    assert!(!cfg.is_enabled("prefer-html"));
+}
+
+#[test]
+fn settings_with_lint_serializes_lint_section() {
+    let s = Settings { paths: vec![], lint: Some(LintConfig::default()) };
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(json.contains("\"lint\""));
+    assert!(json.contains("no-style-blocks"));
+}
+
+#[test]
+fn settings_without_lint_omits_lint_key() {
+    let s = Settings { paths: vec![], lint: None };
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(!json.contains("lint"));
+}
+
+#[test]
+fn settings_roundtrip_with_lint() {
+    let s = Settings {
+        paths: vec!["a".into()],
+        lint: Some(LintConfig { rules: vec!["no-style-blocks".into()] }),
+    };
+    let json = serde_json::to_string(&s).unwrap();
+    let s2: Settings = serde_json::from_str(&json).unwrap();
+    assert_eq!(s2.lint.unwrap().rules, vec!["no-style-blocks"]);
+}
+
+#[test]
+fn settings_lint_absent_from_json_parses_as_none() {
+    let s: Settings = serde_json::from_str(r#"{"paths":[]}"#).unwrap();
+    assert!(s.lint.is_none());
 }

@@ -2,10 +2,37 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct LintConfig {
+    pub rules: Vec<String>,
+}
+
+impl LintConfig {
+    pub fn default_rules() -> Vec<String> {
+        vec![
+            "no-style-blocks".to_string(),
+            "no-inline-styles".to_string(),
+            "prefer-html".to_string(),
+        ]
+    }
+
+    pub fn is_enabled(&self, rule: &str) -> bool {
+        self.rules.iter().any(|r| r == rule)
+    }
+}
+
+impl Default for LintConfig {
+    fn default() -> Self {
+        Self { rules: Self::default_rules() }
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lint: Option<LintConfig>,
 }
 
 fn global_config_path() -> Result<PathBuf> {

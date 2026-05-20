@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use pulldown_cmark::{html as cmark_html, Options, Parser};
 use scraper::{Html, Selector};
 
-use crate::settings;
+use crate::settings::{self, LintConfig};
+
+pub use settings::LintConfig as Config;
 
 #[derive(clap::Parser)]
 pub struct LintArgs {
@@ -24,24 +26,27 @@ pub struct Violation {
 
 pub fn run(args: &LintArgs) -> Result<()> {
     let files = resolve_files(args)?;
+    let lint_cfg = load_or_init_lint_config()?;
     let mut total = 0usize;
 
     for path in &files {
         if path.ends_with(".md") {
-            if args.write {
-                convert_md_to_html(path)?;
-                total += 1;
-            } else {
-                let html_path = md_html_path(path);
-                println!("{path}:1: [prefer-html] {html_path}");
-                total += 1;
+            if lint_cfg.is_enabled("prefer-html") {
+                if args.write {
+                    convert_md_to_html(path)?;
+                    total += 1;
+                } else {
+                    let html_path = md_html_path(path);
+                    println!("{path}:1: [prefer-html] {html_path}");
+                    total += 1;
+                }
             }
         } else {
             let source = std::fs::read_to_string(path)
                 .with_context(|| format!("reading {path}"))?;
 
             if args.write {
-                let (fixed_source, fixed) = fix_html(&source, path);
+                let (fixed_source, fixed) = fix_html(&source, path, &lint_cfg);
                 for v in &fixed {
                     println!("{}: fixed [{}] {}", v.file, v.rule, v.snippet);
                 }
@@ -52,10 +57,12 @@ pub fn run(args: &LintArgs) -> Result<()> {
                 total += fixed.len();
             } else {
                 let violations = check_html(&source, path);
-                for v in &violations {
+                let active: Vec<_> =
+                    violations.into_iter().filter(|v| lint_cfg.is_enabled(v.rule)).collect();
+                for v in &active {
                     println!("{}:{}: [{}] {}", v.file, v.line, v.rule, v.snippet);
                 }
-                total += violations.len();
+                total += active.len();
             }
         }
     }
@@ -65,6 +72,26 @@ pub fn run(args: &LintArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Load lint config from the resolved settings file. If the `lint` key is
+/// absent, write the defaults back to that file (only if the file exists).
+fn load_or_init_lint_config() -> Result<LintConfig> {
+    let cwd = std::env::current_dir().context("could not determine current directory")?;
+    let config_path = settings::find_config_from(&cwd)?;
+    let mut cfg = settings::load_from(&config_path)?;
+
+    match cfg.lint {
+        Some(ref lint) => Ok(lint.clone()),
+        None => {
+            let lint = LintConfig::default();
+            if config_path.exists() {
+                cfg.lint = Some(lint.clone());
+                settings::write_to(&cfg, &config_path)?;
+            }
+            Ok(lint)
+        }
+    }
 }
 
 /// Convert a Markdown file to HTML and remove the original.
@@ -178,43 +205,48 @@ pub fn check_html(source: &str, path: &str) -> Vec<Violation> {
     violations
 }
 
-/// Remove style blocks and inline style attributes. Returns the fixed source
-/// and the list of violations that were removed (from the original source).
-pub fn fix_html(source: &str, path: &str) -> (String, Vec<Violation>) {
-    let violations = check_html(source, path);
-    (apply_fixes(source), violations)
+/// Remove violations for enabled rules. Returns the fixed source and the list
+/// of violations that were addressed.
+pub fn fix_html(source: &str, path: &str, cfg: &LintConfig) -> (String, Vec<Violation>) {
+    let all_violations = check_html(source, path);
+    let violations: Vec<_> =
+        all_violations.into_iter().filter(|v| cfg.is_enabled(v.rule)).collect();
+    (apply_fixes(source, cfg), violations)
 }
 
-fn apply_fixes(source: &str) -> String {
+fn apply_fixes(source: &str, cfg: &LintConfig) -> String {
     let mut s = source.to_string();
 
-    loop {
-        let Some(start) = s.find("<style") else { break };
-        let after = start + "<style".len();
-        match s[after..].chars().next() {
-            Some(' ' | '\t' | '\n' | '>') => {}
-            _ => break,
+    if cfg.is_enabled("no-style-blocks") {
+        loop {
+            let Some(start) = s.find("<style") else { break };
+            let after = start + "<style".len();
+            match s[after..].chars().next() {
+                Some(' ' | '\t' | '\n' | '>') => {}
+                _ => break,
+            }
+            let Some(rel_end) = s[start..].find("</style>") else { break };
+            let mut end = start + rel_end + "</style>".len();
+            if s.get(end..end + 1) == Some("\n") {
+                end += 1;
+            }
+            s.replace_range(start..end, "");
         }
-        let Some(rel_end) = s[start..].find("</style>") else { break };
-        let mut end = start + rel_end + "</style>".len();
-        if s.get(end..end + 1) == Some("\n") {
-            end += 1;
-        }
-        s.replace_range(start..end, "");
     }
 
-    loop {
-        let Some(pos) = s.find(" style=\"") else { break };
-        let val_start = pos + " style=\"".len();
-        let Some(rel_end) = s[val_start..].find('"') else { break };
-        s.replace_range(pos..val_start + rel_end + 1, "");
-    }
-
-    loop {
-        let Some(pos) = s.find(" style='") else { break };
-        let val_start = pos + " style='".len();
-        let Some(rel_end) = s[val_start..].find('\'') else { break };
-        s.replace_range(pos..val_start + rel_end + 1, "");
+    if cfg.is_enabled("no-inline-styles") {
+        loop {
+            let Some(pos) = s.find(" style=\"") else { break };
+            let val_start = pos + " style=\"".len();
+            let Some(rel_end) = s[val_start..].find('"') else { break };
+            s.replace_range(pos..val_start + rel_end + 1, "");
+        }
+        loop {
+            let Some(pos) = s.find(" style='") else { break };
+            let val_start = pos + " style='".len();
+            let Some(rel_end) = s[val_start..].find('\'') else { break };
+            s.replace_range(pos..val_start + rel_end + 1, "");
+        }
     }
 
     s
