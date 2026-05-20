@@ -101,13 +101,18 @@ pub fn run_update_impl(
 
 pub fn fetch_latest_version() -> Result<Version> {
     let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/latest");
-    let body: serde_json::Value = ureq::get(&url)
-        .timeout(Duration::from_secs(5))
-        .set("User-Agent", &format!("{CRATE_NAME}/{CURRENT}"))
-        .set("Accept", "application/vnd.github.v3+json")
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build()
+        .new_agent();
+    let body: serde_json::Value = agent
+        .get(&url)
+        .header("User-Agent", &format!("{CRATE_NAME}/{CURRENT}"))
+        .header("Accept", "application/vnd.github.v3+json")
         .call()
         .context("fetching latest release from GitHub")?
-        .into_json()
+        .body_mut()
+        .read_json()
         .context("parsing GitHub releases response")?;
     let tag = body["tag_name"]
         .as_str()
@@ -117,21 +122,23 @@ pub fn fetch_latest_version() -> Result<Version> {
 }
 
 fn download_and_install(version: &Version) -> Result<()> {
-    use std::io::Read;
     let target = current_target()?;
     let url = format!(
         "https://github.com/{GITHUB_REPO}/releases/download/v{version}/ctlgr-v{version}-{target}"
     );
     println!("downloading {url}");
 
-    let mut bytes = Vec::new();
-    ureq::get(&url)
-        .timeout(Duration::from_secs(60))
-        .set("User-Agent", &format!("{CRATE_NAME}/{CURRENT}"))
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(60)))
+        .build()
+        .new_agent();
+    let bytes = agent
+        .get(&url)
+        .header("User-Agent", &format!("{CRATE_NAME}/{CURRENT}"))
         .call()
         .context("downloading binary")?
-        .into_reader()
-        .read_to_end(&mut bytes)
+        .body_mut()
+        .read_to_vec()
         .context("reading downloaded binary")?;
 
     let current_exe =
