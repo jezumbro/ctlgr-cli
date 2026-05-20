@@ -460,3 +460,88 @@ fn config_add_then_remove_then_list_shows_empty() {
         .success()
         .stdout(predicate::str::contains("no paths configured"));
 }
+
+// ── lint ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn lint_clean_file_exits_zero() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<article><h2>Title</h2><p>Content</p></article>").unwrap();
+    cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .assert()
+        .success();
+}
+
+#[test]
+fn lint_style_block_exits_nonzero() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<article><style>h2{color:red}</style><h2>X</h2></article>")
+        .unwrap();
+    cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("no-style-blocks"));
+}
+
+#[test]
+fn lint_inline_style_exits_nonzero() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<h2 style=\"color:red\">Title</h2>").unwrap();
+    cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("no-inline-styles"));
+}
+
+#[test]
+fn lint_check_output_includes_file_line_rule() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<h2 style=\"color:red\">X</h2>").unwrap();
+    let output = cmd()
+        .args(["lint", "--file"])
+        .arg(&page)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("no-inline-styles"));
+    assert!(stdout.contains(':'));
+}
+
+#[test]
+fn lint_write_fixes_violations_and_exits_zero() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.html");
+    std::fs::write(&page, "<article><style>h2{}</style><h2>X</h2></article>").unwrap();
+    cmd()
+        .args(["lint", "--write", "--file"])
+        .arg(&page)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("fixed"));
+    let content = std::fs::read_to_string(&page).unwrap();
+    assert!(!content.contains("<style>"));
+}
+
+#[test]
+fn lint_write_clean_file_exits_zero_silently() {
+    let tmp = TempDir::new().unwrap();
+    let page = tmp.path().join("page.html");
+    let clean = "<article><h2>Title</h2></article>";
+    std::fs::write(&page, clean).unwrap();
+    cmd()
+        .args(["lint", "--write", "--file"])
+        .arg(&page)
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
