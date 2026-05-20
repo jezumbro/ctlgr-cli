@@ -1,4 +1,4 @@
-use ctlgr::{search, settings, update};
+use ctlgr::{lint, search, settings, update};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -21,6 +21,8 @@ enum Commands {
     },
     /// Check for a newer version and upgrade if one is available
     Update,
+    /// Lint catalog HTML files for style violations
+    Lint(lint::LintArgs),
 }
 
 #[derive(Subcommand)]
@@ -52,6 +54,7 @@ fn main() -> Result<()> {
         Commands::Search(args) => search::run(&args),
         Commands::Config { command } => run_config(command),
         Commands::Update => update::run_update(),
+        Commands::Lint(args) => lint::run(&args),
     }
 }
 

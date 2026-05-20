@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ctlgr lint</title>
+</head>
+<body>
+  <article id="lint">
+    <h1>ctlgr lint</h1>
+    <p>Validate catalog HTML files against style conventions. Default mode is non-destructive (<code>--check</code>); <code>--write</code> applies automatic fixes.</p>
+
+    <section id="usage">
+      <h2>Usage</h2>
+      <pre><code>ctlgr lint [flags] [--file &lt;file&gt;...]</code></pre>
+    </section>
+
+    <section id="flags">
+      <h2>Flags</h2>
+      <dl>
+        <dt><code>--file &lt;file&gt;</code>, <code>-f</code></dt>
+        <dd>Specific file(s) to lint (repeatable). Falls back to configured paths when omitted.</dd>
+
+        <dt><code>--write</code></dt>
+        <dd>Auto-fix violations where possible. Removes offending elements and attributes in-place. Exits 0 regardless of how many violations were fixed.</dd>
+      </dl>
+    </section>
+
+    <section id="exit-codes">
+      <h2>Exit codes</h2>
+      <dl>
+        <dt><code>0</code></dt>
+        <dd>No violations found (check mode), or fixes applied (write mode).</dd>
+        <dt><code>1</code></dt>
+        <dd>One or more violations found in check mode.</dd>
+        <dt>non-zero</dt>
+        <dd>I/O or parse error.</dd>
+      </dl>
+    </section>
+
+    <section id="rules">
+      <h2>Rules</h2>
+
+      <article id="no-style-blocks">
+        <h3>no-style-blocks</h3>
+        <p>Flag <code>&lt;style&gt;</code> elements. Inline style blocks couple presentation to catalog structure.</p>
+        <section id="no-style-blocks-violation">
+          <h4>Violation</h4>
+          <pre><code>&lt;article id="search"&gt;
+  &lt;style&gt; h2 { color: red } &lt;/style&gt;
+  &lt;h2&gt;search&lt;/h2&gt;
+&lt;/article&gt;</code></pre>
+        </section>
+        <section id="no-style-blocks-fix">
+          <h4>Fix (<code>--write</code>)</h4>
+          <p>Remove the <code>&lt;style&gt;</code> element entirely.</p>
+        </section>
+      </article>
+
+      <article id="no-inline-styles">
+        <h3>no-inline-styles</h3>
+        <p>Flag <code>style="..."</code> attributes on any element. Inline styles are presentation noise that does not belong in a catalog file.</p>
+        <section id="no-inline-styles-violation">
+          <h4>Violation</h4>
+          <pre><code>&lt;h2 style="font-weight: bold"&gt;search&lt;/h2&gt;
+&lt;p style="color: grey"&gt;description&lt;/p&gt;</code></pre>
+        </section>
+        <section id="no-inline-styles-fix">
+          <h4>Fix (<code>--write</code>)</h4>
+          <p>Strip the <code>style</code> attribute from the element, leaving all other attributes intact.</p>
+        </section>
+      </article>
+    </section>
+
+    <section id="output-format">
+      <h2>Output format</h2>
+      <p>Check mode prints one line per violation:</p>
+      <pre><code>&lt;file&gt;:&lt;line&gt;: [&lt;rule&gt;] &lt;snippet&gt;</code></pre>
+      <p>Write mode prints one line per fix applied:</p>
+      <pre><code>&lt;file&gt;: fixed [&lt;rule&gt;] &lt;snippet&gt;</code></pre>
+    </section>
+
+    <section id="examples">
+      <h2>Examples</h2>
+      <pre><code># Check a specific file
+ctlgr lint --file catalog.html
+
+# Check all registered catalog files
+ctlgr lint
+
+# Auto-fix a file
+ctlgr lint --write --file catalog.html
+
+# Auto-fix all registered files
+ctlgr lint --write</code></pre>
+    </section>
+  </article>
+</body>
+</html>
