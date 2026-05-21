@@ -97,6 +97,22 @@ pub fn write_to(settings: &Settings, path: &Path) -> Result<()> {
         .with_context(|| format!("writing {}", path.display()))
 }
 
+/// Ensure the resolved config file contains a `lint` section. If the file
+/// exists but the key is absent, write the defaults in place. Silently ignores
+/// all errors — this is a best-effort migration on every invocation.
+pub fn ensure_lint_defaults() {
+    let Ok(cwd) = std::env::current_dir() else { return };
+    let Ok(config_path) = find_config_from(&cwd) else { return };
+    if !config_path.exists() {
+        return;
+    }
+    let Ok(mut cfg) = load_from(&config_path) else { return };
+    if cfg.lint.is_none() {
+        cfg.lint = Some(LintConfig::default());
+        let _ = write_to(&cfg, &config_path);
+    }
+}
+
 pub fn expand_paths(settings: &Settings) -> Result<Vec<String>> {
     let mut files = Vec::new();
     for dir in &settings.paths {
