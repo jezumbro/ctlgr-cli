@@ -26,7 +26,7 @@ pub struct Violation {
 
 pub fn run(args: &LintArgs) -> Result<()> {
     let files = resolve_files(args)?;
-    let lint_cfg = load_or_init_lint_config()?;
+    let lint_cfg = settings::load()?.lint.unwrap_or_default();
     let mut total = 0usize;
 
     for path in &files {
@@ -72,26 +72,6 @@ pub fn run(args: &LintArgs) -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Load lint config from the resolved settings file. If the `lint` key is
-/// absent, write the defaults back to that file (only if the file exists).
-fn load_or_init_lint_config() -> Result<LintConfig> {
-    let cwd = std::env::current_dir().context("could not determine current directory")?;
-    let config_path = settings::find_config_from(&cwd)?;
-    let mut cfg = settings::load_from(&config_path)?;
-
-    match cfg.lint {
-        Some(ref lint) => Ok(lint.clone()),
-        None => {
-            let lint = LintConfig::default();
-            if config_path.exists() {
-                cfg.lint = Some(lint.clone());
-                settings::write_to(&cfg, &config_path)?;
-            }
-            Ok(lint)
-        }
-    }
 }
 
 /// Convert a Markdown file to HTML and remove the original.

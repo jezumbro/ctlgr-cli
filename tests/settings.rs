@@ -2,8 +2,8 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use ctlgr::settings::{
-    expand_paths, find_config_from, load_from, local_config_path_from, write_to, LintConfig,
-    Settings,
+    ensure_lint_defaults, expand_paths, find_config_from, load_from, local_config_path_from,
+    write_to, LintConfig, Settings,
 };
 
 #[test]
@@ -259,4 +259,49 @@ fn settings_roundtrip_with_lint() {
 fn settings_lint_absent_from_json_parses_as_none() {
     let s: Settings = serde_json::from_str(r#"{"paths":[]}"#).unwrap();
     assert!(s.lint.is_none());
+}
+
+// ── ensure_lint_defaults ───────────────────────────────────────────────────
+
+#[test]
+fn ensure_lint_defaults_writes_rules_to_existing_config() {
+    let tmp = TempDir::new().unwrap();
+    let config = tmp.path().join(".ctlgr.json");
+    write_to(&Settings { paths: vec![], lint: None }, &config).unwrap();
+    // Change CWD so find_config_from resolves this file
+    std::env::set_current_dir(&tmp).unwrap();
+    ensure_lint_defaults();
+    let loaded = load_from(&config).unwrap();
+    assert!(loaded.lint.is_some());
+    let rules = loaded.lint.unwrap().rules;
+    assert!(rules.contains(&"no-style-blocks".to_string()));
+    assert!(rules.contains(&"no-inline-styles".to_string()));
+    assert!(rules.contains(&"prefer-html".to_string()));
+}
+
+#[test]
+fn ensure_lint_defaults_is_idempotent() {
+    let tmp = TempDir::new().unwrap();
+    let config = tmp.path().join(".ctlgr.json");
+    let custom = LintConfig { rules: vec!["no-style-blocks".into()] };
+    write_to(&Settings { paths: vec![], lint: Some(custom) }, &config).unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    ensure_lint_defaults();
+    let loaded = load_from(&config).unwrap();
+    // existing lint config must not be overwritten
+    assert_eq!(loaded.lint.unwrap().rules, vec!["no-style-blocks"]);
+}
+
+#[test]
+fn ensure_lint_defaults_does_nothing_when_no_config_file() {
+    // Point to a dir with no config; function should not panic or create files
+    let tmp = TempDir::new().unwrap();
+    // Temporarily change cwd to an isolated dir without a config
+    let isolated = tmp.path().join("isolated");
+    std::fs::create_dir(&isolated).unwrap();
+    std::env::set_current_dir(&isolated).unwrap();
+    // Since no config file exists in the tree (or global), ensure_lint_defaults
+    // must return without creating anything in isolated/.
+    ensure_lint_defaults();
+    assert!(std::fs::read_dir(&isolated).unwrap().next().is_none());
 }
