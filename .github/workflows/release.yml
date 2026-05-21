@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.0.1)"
+        required: true
 
 permissions:
   contents: write
@@ -28,7 +33,7 @@ jobs:
             use_cross: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,14 +54,15 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${REF#v}"
           BIN="target/${{ matrix.target }}/release/ctlgr"
           ARTIFACT="ctlgr-v${VERSION}-${{ matrix.target }}"
           cp "$BIN" "$ARTIFACT"
           echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ env.ARTIFACT }}
           generate_release_notes: true
