@@ -161,6 +161,43 @@ fn search_inherits_config_from_ancestor_directory() {
 }
 
 #[test]
+fn search_ctlgr_local_takes_priority_over_ctlgr() {
+    let tmp = TempDir::new().unwrap();
+    let committed_docs = tmp.path().join("committed_docs");
+    let local_docs = tmp.path().join("local_docs");
+    std::fs::create_dir(&committed_docs).unwrap();
+    std::fs::create_dir(&local_docs).unwrap();
+    std::fs::write(
+        committed_docs.join("c.html"),
+        "<html><body><p>committed</p></body></html>",
+    )
+    .unwrap();
+    std::fs::write(
+        local_docs.join("l.html"),
+        "<html><body><p>local-only</p></body></html>",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr"),
+        serde_json::json!({ "path": committed_docs.to_string_lossy() }).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.local"),
+        serde_json::json!({ "path": local_docs.to_string_lossy() }).to_string(),
+    )
+    .unwrap();
+    let output = cmd()
+        .args(["search", "p", "--json", "text"])
+        .current_dir(&tmp)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("local-only"));
+    assert!(!stdout.contains("committed"));
+}
+
+#[test]
 fn search_invalid_selector_errors() {
     let tmp = TempDir::new().unwrap();
     let page = tmp.path().join("page.html");
@@ -262,6 +299,20 @@ fn config_init_creates_ctlgr() {
         .success()
         .stdout(predicate::str::contains("created"));
     assert!(tmp.path().join(".ctlgr").exists());
+    assert!(!tmp.path().join(".ctlgr.local").exists());
+}
+
+#[test]
+fn config_init_local_creates_ctlgr_local() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["config", "init", "--local"])
+        .current_dir(&tmp)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("created"));
+    assert!(tmp.path().join(".ctlgr.local").exists());
+    assert!(!tmp.path().join(".ctlgr").exists());
 }
 
 #[test]
