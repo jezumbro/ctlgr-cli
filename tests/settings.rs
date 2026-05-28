@@ -262,13 +262,16 @@ fn settings_lint_absent_from_json_parses_as_none() {
 }
 
 // ── ensure_lint_defaults ───────────────────────────────────────────────────
+//
+// These tests mutate process-global CWD, so they must not run concurrently.
+static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn ensure_lint_defaults_writes_rules_to_existing_config() {
+    let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
     let config = tmp.path().join(".ctlgr.json");
     write_to(&Settings { paths: vec![], lint: None }, &config).unwrap();
-    // Change CWD so find_config_from resolves this file
     std::env::set_current_dir(&tmp).unwrap();
     ensure_lint_defaults();
     let loaded = load_from(&config).unwrap();
@@ -281,6 +284,7 @@ fn ensure_lint_defaults_writes_rules_to_existing_config() {
 
 #[test]
 fn ensure_lint_defaults_is_idempotent() {
+    let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
     let config = tmp.path().join(".ctlgr.json");
     let custom = LintConfig { rules: vec!["no-style-blocks".into()] };
@@ -288,20 +292,16 @@ fn ensure_lint_defaults_is_idempotent() {
     std::env::set_current_dir(&tmp).unwrap();
     ensure_lint_defaults();
     let loaded = load_from(&config).unwrap();
-    // existing lint config must not be overwritten
     assert_eq!(loaded.lint.unwrap().rules, vec!["no-style-blocks"]);
 }
 
 #[test]
 fn ensure_lint_defaults_does_nothing_when_no_config_file() {
-    // Point to a dir with no config; function should not panic or create files
+    let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
-    // Temporarily change cwd to an isolated dir without a config
     let isolated = tmp.path().join("isolated");
     std::fs::create_dir(&isolated).unwrap();
     std::env::set_current_dir(&isolated).unwrap();
-    // Since no config file exists in the tree (or global), ensure_lint_defaults
-    // must return without creating anything in isolated/.
     ensure_lint_defaults();
     assert!(std::fs::read_dir(&isolated).unwrap().next().is_none());
 }
