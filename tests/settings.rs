@@ -266,6 +266,7 @@ fn migrate_ctlgr_json_creates_ctlgr() {
     migrate_legacy_config();
     let new_config = tmp.path().join(".ctlgr");
     assert!(new_config.exists());
+    assert!(!tmp.path().join(".ctlgr.json").exists(), "legacy file should be removed");
     let loaded = load_from(&new_config).unwrap();
     assert_eq!(loaded.path, Some("/catalog/docs".into()));
 }
@@ -288,6 +289,9 @@ fn migrate_ctlgr_local_json_takes_priority_over_ctlgr_json() {
     migrate_legacy_config();
     let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
     assert_eq!(loaded.path, Some("/local".into()));
+    assert!(!tmp.path().join(".ctlgr.local.json").exists(), "local legacy file should be removed");
+    // .ctlgr.json left untouched — only the winning file is removed
+    assert!(tmp.path().join(".ctlgr.json").exists());
 }
 
 #[test]
