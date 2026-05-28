@@ -7,12 +7,16 @@ use crate::settings::{self, LintConfig};
 pub use settings::LintConfig as Config;
 
 #[derive(clap::Parser)]
+#[command(
+    about = "Lint catalog HTML files for style violations",
+    after_help = "MODES:\n  check (default)  report violations, exit non-zero if any found\n  --write          fix in place: strip styles, convert .md → .html\n\nRULES (all enabled by default; configure via lint.rules in settings):\n  no-style-blocks   <style> blocks are not allowed\n  no-inline-styles  style=\"...\" attributes are not allowed\n  prefer-html       .md files should be converted to .html"
+)]
 pub struct LintArgs {
-    /// Files to lint (repeatable; defaults to paths in settings)
+    /// Files to lint (repeatable; defaults to all registered paths)
     #[arg(short, long, value_name = "file")]
     pub file: Vec<String>,
 
-    /// Auto-fix violations where possible (default: check mode)
+    /// Fix violations in place: strip style blocks/attributes, convert .md to .html
     #[arg(long)]
     pub write: bool,
 }

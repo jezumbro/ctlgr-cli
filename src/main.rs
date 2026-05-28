@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "ctlgr-cli", about = "HTML catalog — create and search .html files", disable_help_flag = true)]
+#[command(name = "ctlgr-cli", about = "HTML catalog — create and search .html files")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
