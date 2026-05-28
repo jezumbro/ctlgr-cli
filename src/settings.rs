@@ -29,10 +29,17 @@ impl Default for LintConfig {
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct Settings {
-    #[serde(default)]
-    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lint: Option<LintConfig>,
+}
+
+pub fn default_notes_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("~"))
+        .join(".ctlgr-cli")
+        .join("notes")
 }
 
 fn global_config_path() -> Result<PathBuf> {
@@ -43,11 +50,9 @@ fn global_config_path() -> Result<PathBuf> {
 pub fn find_config_from(start: &Path) -> Result<PathBuf> {
     let mut dir = start;
     loop {
-        for name in &[".ctlgr.local.json", ".ctlgr.json"] {
-            let candidate = dir.join(name);
-            if candidate.exists() {
-                return Ok(candidate);
-            }
+        let candidate = dir.join(".ctlgr");
+        if candidate.exists() {
+            return Ok(candidate);
         }
         match dir.parent() {
             Some(parent) => dir = parent,
@@ -57,9 +62,13 @@ pub fn find_config_from(start: &Path) -> Result<PathBuf> {
     global_config_path()
 }
 
-pub fn local_config_path_from(cwd: &Path, local: bool) -> PathBuf {
-    let name = if local { ".ctlgr.local.json" } else { ".ctlgr.json" };
-    cwd.join(name)
+pub fn config_path_from(cwd: &Path) -> PathBuf {
+    cwd.join(".ctlgr")
+}
+
+pub fn config_path() -> Result<PathBuf> {
+    let cwd = std::env::current_dir().context("could not determine current directory")?;
+    Ok(config_path_from(&cwd))
 }
 
 pub fn load_from(path: &Path) -> Result<Settings> {
@@ -70,11 +79,6 @@ pub fn load_from(path: &Path) -> Result<Settings> {
         .with_context(|| format!("reading {}", path.display()))?;
     serde_json::from_str(&content)
         .with_context(|| format!("parsing {}", path.display()))
-}
-
-pub fn local_config_path(local: bool) -> Result<PathBuf> {
-    let cwd = std::env::current_dir().context("could not determine current directory")?;
-    Ok(local_config_path_from(&cwd, local))
 }
 
 pub fn load() -> Result<Settings> {
@@ -97,6 +101,28 @@ pub fn write_to(settings: &Settings, path: &Path) -> Result<()> {
         .with_context(|| format!("writing {}", path.display()))
 }
 
+/// Resolve the catalog directory: configured path, or ~/.ctlgr-cli/notes/.
+pub fn resolve_path(settings: &Settings) -> PathBuf {
+    settings.path.as_deref().map(PathBuf::from).unwrap_or_else(default_notes_dir)
+}
+
+/// Expand the resolved catalog directory into a list of .html and .md files.
+pub fn expand_path(settings: &Settings) -> Result<Vec<String>> {
+    let dir = resolve_path(settings);
+    let dir_str = dir.to_string_lossy();
+    let mut files = Vec::new();
+    for ext in &["html", "md"] {
+        let pattern = format!("{dir_str}/**/*.{ext}");
+        let entries = glob::glob(&pattern)
+            .with_context(|| format!("invalid glob pattern: {pattern}"))?;
+        for entry in entries {
+            let path = entry.with_context(|| format!("expanding {pattern}"))?;
+            files.push(path.to_string_lossy().into_owned());
+        }
+    }
+    Ok(files)
+}
+
 /// Ensure the resolved config file contains a `lint` section. If the file
 /// exists but the key is absent, write the defaults in place. Silently ignores
 /// all errors — this is a best-effort migration on every invocation.
@@ -111,20 +137,4 @@ pub fn ensure_lint_defaults() {
         cfg.lint = Some(LintConfig::default());
         let _ = write_to(&cfg, &config_path);
     }
-}
-
-pub fn expand_paths(settings: &Settings) -> Result<Vec<String>> {
-    let mut files = Vec::new();
-    for dir in &settings.paths {
-        for ext in &["html", "md"] {
-            let pattern = format!("{dir}/**/*.{ext}");
-            let entries = glob::glob(&pattern)
-                .with_context(|| format!("invalid glob pattern: {pattern}"))?;
-            for entry in entries {
-                let path = entry.with_context(|| format!("expanding {pattern}"))?;
-                files.push(path.to_string_lossy().into_owned());
-            }
-        }
-    }
-    Ok(files)
 }

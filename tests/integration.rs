@@ -92,14 +92,14 @@ fn search_json_output_contains_requested_fields_only() {
 #[test]
 fn search_with_no_files_and_no_config_errors() {
     let tmp = TempDir::new().unwrap();
-    // Write an empty config to shadow any ancestor or global config
-    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    // Write a config with no path to shadow any ancestor or global config
+    std::fs::write(tmp.path().join(".ctlgr"), r#"{}"#).unwrap();
     cmd()
         .args(["search", "a"])
         .current_dir(&tmp)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("no files specified"));
+        .stderr(predicate::str::contains("no files found"));
 }
 
 #[test]
@@ -108,8 +108,8 @@ fn search_with_configured_path_but_no_matching_files_errors() {
     let empty = tmp.path().join("empty");
     std::fs::create_dir(&empty).unwrap();
     std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        serde_json::json!({ "paths": [empty.to_string_lossy()] }).to_string(),
+        tmp.path().join(".ctlgr"),
+        serde_json::json!({ "path": empty.to_string_lossy() }).to_string(),
     )
     .unwrap();
     cmd()
@@ -121,14 +121,14 @@ fn search_with_configured_path_but_no_matching_files_errors() {
 }
 
 #[test]
-fn search_via_configured_paths() {
+fn search_via_configured_path() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
     std::fs::write(docs.join("page.html"), "<html><body><a>link</a></body></html>").unwrap();
     std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        serde_json::json!({ "paths": [docs.to_string_lossy()] }).to_string(),
+        tmp.path().join(".ctlgr"),
+        serde_json::json!({ "path": docs.to_string_lossy() }).to_string(),
     )
     .unwrap();
     cmd()
@@ -140,43 +140,6 @@ fn search_via_configured_paths() {
 }
 
 #[test]
-fn search_local_config_takes_priority_over_committed() {
-    let tmp = TempDir::new().unwrap();
-    let committed_docs = tmp.path().join("committed_docs");
-    let local_docs = tmp.path().join("local_docs");
-    std::fs::create_dir(&committed_docs).unwrap();
-    std::fs::create_dir(&local_docs).unwrap();
-    std::fs::write(
-        committed_docs.join("c.html"),
-        "<html><body><p>committed</p></body></html>",
-    )
-    .unwrap();
-    std::fs::write(
-        local_docs.join("l.html"),
-        "<html><body><p>local-only</p></body></html>",
-    )
-    .unwrap();
-    std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        serde_json::json!({ "paths": [committed_docs.to_string_lossy()] }).to_string(),
-    )
-    .unwrap();
-    std::fs::write(
-        tmp.path().join(".ctlgr.local.json"),
-        serde_json::json!({ "paths": [local_docs.to_string_lossy()] }).to_string(),
-    )
-    .unwrap();
-    let output = cmd()
-        .args(["search", "p", "--json", "text"])
-        .current_dir(&tmp)
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("local-only"));
-    assert!(!stdout.contains("committed"));
-}
-
-#[test]
 fn search_inherits_config_from_ancestor_directory() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
@@ -185,8 +148,8 @@ fn search_inherits_config_from_ancestor_directory() {
     std::fs::create_dir_all(&sub).unwrap();
     std::fs::write(docs.join("page.html"), "<html><body><a>link</a></body></html>").unwrap();
     std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        serde_json::json!({ "paths": [docs.to_string_lossy()] }).to_string(),
+        tmp.path().join(".ctlgr"),
+        serde_json::json!({ "path": docs.to_string_lossy() }).to_string(),
     )
     .unwrap();
     cmd()
@@ -290,7 +253,7 @@ fn search_md_with_text_filter() {
 // ── config init ───────────────────────────────────────────────────────────────
 
 #[test]
-fn config_init_creates_ctlgr_json() {
+fn config_init_creates_ctlgr() {
     let tmp = TempDir::new().unwrap();
     cmd()
         .args(["config", "init"])
@@ -298,20 +261,7 @@ fn config_init_creates_ctlgr_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains("created"));
-    assert!(tmp.path().join(".ctlgr.json").exists());
-    assert!(!tmp.path().join(".ctlgr.local.json").exists());
-}
-
-#[test]
-fn config_init_local_creates_local_json() {
-    let tmp = TempDir::new().unwrap();
-    cmd()
-        .args(["config", "init", "--local"])
-        .current_dir(&tmp)
-        .assert()
-        .success();
-    assert!(tmp.path().join(".ctlgr.local.json").exists());
-    assert!(!tmp.path().join(".ctlgr.json").exists());
+    assert!(tmp.path().join(".ctlgr").exists());
 }
 
 #[test]
@@ -371,7 +321,7 @@ fn config_add_file_not_directory_errors() {
 }
 
 #[test]
-fn config_add_duplicate_is_idempotent() {
+fn config_add_same_path_twice_is_idempotent() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
@@ -389,7 +339,7 @@ fn config_add_duplicate_is_idempotent() {
 // ── config remove ─────────────────────────────────────────────────────────────
 
 #[test]
-fn config_remove_existing_path() {
+fn config_remove_clears_path() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
@@ -397,7 +347,6 @@ fn config_remove_existing_path() {
     cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
     cmd()
         .args(["config", "remove"])
-        .arg(&docs)
         .current_dir(&tmp)
         .assert()
         .success()
@@ -405,21 +354,21 @@ fn config_remove_existing_path() {
 }
 
 #[test]
-fn config_remove_nonexistent_path_prints_not_found() {
+fn config_remove_when_no_path_prints_notice() {
     let tmp = TempDir::new().unwrap();
     cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
     cmd()
-        .args(["config", "remove", "/nonexistent"])
+        .args(["config", "remove"])
         .current_dir(&tmp)
         .assert()
         .success()
-        .stdout(predicate::str::contains("not found"));
+        .stdout(predicate::str::contains("no path configured"));
 }
 
 // ── config list ───────────────────────────────────────────────────────────────
 
 #[test]
-fn config_list_empty_prints_hint() {
+fn config_list_shows_default_when_no_path_set() {
     let tmp = TempDir::new().unwrap();
     cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
     cmd()
@@ -427,11 +376,12 @@ fn config_list_empty_prints_hint() {
         .current_dir(&tmp)
         .assert()
         .success()
-        .stdout(predicate::str::contains("no paths configured"));
+        .stdout(predicate::str::contains(".ctlgr-cli"))
+        .stdout(predicate::str::contains("notes"));
 }
 
 #[test]
-fn config_list_shows_registered_paths() {
+fn config_list_shows_registered_path() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
@@ -446,19 +396,19 @@ fn config_list_shows_registered_paths() {
 }
 
 #[test]
-fn config_add_then_remove_then_list_shows_empty() {
+fn config_add_then_remove_then_list_shows_default() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
     cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
     cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
-    cmd().args(["config", "remove"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd().args(["config", "remove"]).current_dir(&tmp).assert().success();
     cmd()
         .args(["config", "list"])
         .current_dir(&tmp)
         .assert()
         .success()
-        .stdout(predicate::str::contains("no paths configured"));
+        .stdout(predicate::str::contains(".ctlgr-cli"));
 }
 
 // ── lint ──────────────────────────────────────────────────────────────────
@@ -549,18 +499,18 @@ fn lint_write_clean_file_exits_zero_silently() {
 #[test]
 fn lint_with_no_file_and_no_config_errors() {
     let tmp = TempDir::new().unwrap();
-    // Write empty config to shadow any ancestor or global config
-    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    // Write a config with no path to shadow any ancestor or global config
+    std::fs::write(tmp.path().join(".ctlgr"), r#"{}"#).unwrap();
     cmd()
         .args(["lint"])
         .current_dir(&tmp)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("no files specified"));
+        .stderr(predicate::str::contains("no files found"));
 }
 
 #[test]
-fn lint_via_configured_paths() {
+fn lint_via_configured_path() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
@@ -655,10 +605,10 @@ fn lint_write_md_merges_when_html_already_exists() {
 #[test]
 fn any_command_writes_default_lint_rules_to_existing_config() {
     let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    std::fs::write(tmp.path().join(".ctlgr"), r#"{}"#).unwrap();
     // Run a non-lint command — defaults should still be seeded
     cmd().args(["config", "list"]).current_dir(&tmp).assert().success();
-    let config = std::fs::read_to_string(tmp.path().join(".ctlgr.json")).unwrap();
+    let config = std::fs::read_to_string(tmp.path().join(".ctlgr")).unwrap();
     assert!(config.contains("\"lint\""), "lint section should be written by any command");
     assert!(config.contains("no-style-blocks"));
     assert!(config.contains("prefer-html"));
@@ -667,7 +617,7 @@ fn any_command_writes_default_lint_rules_to_existing_config() {
 #[test]
 fn lint_writes_default_rules_to_existing_config() {
     let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    std::fs::write(tmp.path().join(".ctlgr"), r#"{}"#).unwrap();
     let page = tmp.path().join("page.html");
     std::fs::write(&page, "<article><h2>Clean</h2></article>").unwrap();
     cmd()
@@ -676,7 +626,7 @@ fn lint_writes_default_rules_to_existing_config() {
         .current_dir(&tmp)
         .assert()
         .success();
-    let config = std::fs::read_to_string(tmp.path().join(".ctlgr.json")).unwrap();
+    let config = std::fs::read_to_string(tmp.path().join(".ctlgr")).unwrap();
     assert!(config.contains("\"lint\""));
     assert!(config.contains("no-style-blocks"));
 }
@@ -684,10 +634,9 @@ fn lint_writes_default_rules_to_existing_config() {
 #[test]
 fn lint_respects_disabled_rule_in_config() {
     let tmp = TempDir::new().unwrap();
-    // Config with no-inline-styles disabled
     std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        r#"{"paths":[],"lint":{"rules":["no-style-blocks","prefer-html"]}}"#,
+        tmp.path().join(".ctlgr"),
+        r#"{"lint":{"rules":["no-style-blocks","prefer-html"]}}"#,
     )
     .unwrap();
     let page = tmp.path().join("page.html");
