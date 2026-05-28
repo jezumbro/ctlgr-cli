@@ -146,7 +146,9 @@ pub fn migrate_legacy_config() {
         let Ok(content) = std::fs::read_to_string(&legacy) else { continue };
         let Ok(old) = serde_json::from_str::<LegacySettings>(&content) else { continue };
         let new = Settings { path: old.paths.into_iter().next(), lint: old.lint };
-        let _ = write_to(&new, &new_config);
+        if write_to(&new, &new_config).is_ok() {
+            let _ = std::fs::remove_file(&legacy);
+        }
         break;
     }
 }
