@@ -2,64 +2,41 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use ctlgr::settings::{
-    ensure_lint_defaults, expand_paths, find_config_from, load_from, local_config_path_from,
-    write_to, LintConfig, Settings,
+    config_path_from, default_notes_dir, ensure_lint_defaults, expand_path, find_config_from,
+    load_from, resolve_path, write_to, LintConfig, Settings,
 };
 
 #[test]
-fn settings_default_has_empty_paths() {
-    assert!(Settings::default().paths.is_empty());
+fn settings_default_has_no_path() {
+    assert!(Settings::default().path.is_none());
 }
 
 #[test]
 fn settings_roundtrip() {
-    let s = Settings { paths: vec!["a".into(), "b".into()], lint: None };
+    let s = Settings { path: Some("/catalog".into()), lint: None };
     let json = serde_json::to_string(&s).unwrap();
     let s2: Settings = serde_json::from_str(&json).unwrap();
-    assert_eq!(s2.paths, s.paths);
+    assert_eq!(s2.path, s.path);
 }
 
 #[test]
-fn settings_missing_paths_field_defaults_empty() {
+fn settings_missing_path_field_defaults_none() {
     let s: Settings = serde_json::from_str("{}").unwrap();
-    assert!(s.paths.is_empty());
+    assert!(s.path.is_none());
 }
 
 #[test]
-fn local_config_path_from_non_local() {
-    let p = local_config_path_from(Path::new("/some/dir"), false);
-    assert_eq!(p, Path::new("/some/dir/.ctlgr.json"));
+fn config_path_from_returns_ctlgr() {
+    let p = config_path_from(Path::new("/some/dir"));
+    assert_eq!(p, Path::new("/some/dir/.ctlgr"));
 }
 
 #[test]
-fn local_config_path_from_local_flag() {
-    let p = local_config_path_from(Path::new("/some/dir"), true);
-    assert_eq!(p, Path::new("/some/dir/.ctlgr.local.json"));
-}
-
-#[test]
-fn find_config_from_finds_ctlgr_json() {
+fn find_config_from_finds_ctlgr() {
     let tmp = TempDir::new().unwrap();
-    let config = tmp.path().join(".ctlgr.json");
+    let config = tmp.path().join(".ctlgr");
     std::fs::write(&config, "{}").unwrap();
     assert_eq!(find_config_from(tmp.path()).unwrap(), config);
-}
-
-#[test]
-fn find_config_from_finds_local_json() {
-    let tmp = TempDir::new().unwrap();
-    let local = tmp.path().join(".ctlgr.local.json");
-    std::fs::write(&local, "{}").unwrap();
-    assert_eq!(find_config_from(tmp.path()).unwrap(), local);
-}
-
-#[test]
-fn find_config_from_local_beats_committed() {
-    let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join(".ctlgr.local.json"), "{}").unwrap();
-    std::fs::write(tmp.path().join(".ctlgr.json"), "{}").unwrap();
-    let found = find_config_from(tmp.path()).unwrap();
-    assert_eq!(found.file_name().unwrap(), ".ctlgr.local.json");
 }
 
 #[test]
@@ -67,29 +44,26 @@ fn find_config_from_walks_up() {
     let tmp = TempDir::new().unwrap();
     let sub = tmp.path().join("a").join("b");
     std::fs::create_dir_all(&sub).unwrap();
-    let config = tmp.path().join(".ctlgr.json");
+    let config = tmp.path().join(".ctlgr");
     std::fs::write(&config, "{}").unwrap();
     assert_eq!(find_config_from(&sub).unwrap(), config);
 }
 
 #[test]
-fn find_config_from_exhausts_names_at_level_before_ascending() {
-    // sub has .ctlgr.json but not .ctlgr.local.json
-    // parent has .ctlgr.local.json
-    // should return sub/.ctlgr.json, not ascend to parent's local
+fn find_config_from_stops_at_nearest_ancestor() {
     let tmp = TempDir::new().unwrap();
     let sub = tmp.path().join("sub");
     std::fs::create_dir_all(&sub).unwrap();
-    std::fs::write(sub.join(".ctlgr.json"), "{}").unwrap();
-    std::fs::write(tmp.path().join(".ctlgr.local.json"), "{}").unwrap();
-    assert_eq!(find_config_from(&sub).unwrap(), sub.join(".ctlgr.json"));
+    std::fs::write(sub.join(".ctlgr"), "{}").unwrap();
+    std::fs::write(tmp.path().join(".ctlgr"), "{}").unwrap();
+    assert_eq!(find_config_from(&sub).unwrap(), sub.join(".ctlgr"));
 }
 
 #[test]
 fn find_config_from_falls_back_to_global() {
     let found = find_config_from(Path::new("/")).unwrap();
     assert!(found.to_string_lossy().contains(".ctlgr-cli"));
-    assert!(found.file_name().unwrap() == "settings.json");
+    assert_eq!(found.file_name().unwrap(), "settings.json");
 }
 
 #[test]
@@ -104,26 +78,26 @@ fn write_to_creates_parent_dirs() {
 fn write_to_serializes_and_load_from_roundtrips() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("c.json");
-    let s = Settings { paths: vec!["mypath".into()], lint: None };
+    let s = Settings { path: Some("/mypath".into()), lint: None };
     write_to(&s, &path).unwrap();
     let s2 = load_from(&path).unwrap();
-    assert_eq!(s2.paths, vec!["mypath"]);
+    assert_eq!(s2.path, Some("/mypath".into()));
 }
 
 #[test]
 fn load_from_missing_file_returns_default() {
     let tmp = TempDir::new().unwrap();
     let s = load_from(&tmp.path().join("nonexistent.json")).unwrap();
-    assert!(s.paths.is_empty());
+    assert!(s.path.is_none());
 }
 
 #[test]
 fn load_from_reads_valid_file() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("c.json");
-    std::fs::write(&path, r#"{"paths":["/foo","/bar"]}"#).unwrap();
+    std::fs::write(&path, r#"{"path":"/foo"}"#).unwrap();
     let s = load_from(&path).unwrap();
-    assert_eq!(s.paths, vec!["/foo", "/bar"]);
+    assert_eq!(s.path, Some("/foo".into()));
 }
 
 #[test]
@@ -134,75 +108,72 @@ fn load_from_errors_on_invalid_json() {
     assert!(load_from(&path).is_err());
 }
 
+// ── resolve_path ───────────────────────────────────────────────────────────
+
 #[test]
-fn expand_paths_empty_returns_empty() {
-    let files = expand_paths(&Settings::default()).unwrap();
+fn resolve_path_returns_configured_path() {
+    let s = Settings { path: Some("/catalog".into()), lint: None };
+    assert_eq!(resolve_path(&s).to_string_lossy(), "/catalog");
+}
+
+#[test]
+fn resolve_path_falls_back_to_notes_dir() {
+    let s = Settings { path: None, lint: None };
+    let resolved = resolve_path(&s);
+    let default = default_notes_dir();
+    assert_eq!(resolved, default);
+    assert!(resolved.to_string_lossy().contains(".ctlgr-cli"));
+    assert!(resolved.to_string_lossy().ends_with("notes"));
+}
+
+// ── expand_path ────────────────────────────────────────────────────────────
+
+#[test]
+fn expand_path_empty_nonexistent_dir_returns_empty() {
+    let s = Settings { path: Some("/nonexistent/xyz/abc/definitely/not/real".into()), lint: None };
+    let files = expand_path(&s).unwrap();
     assert!(files.is_empty());
 }
 
 #[test]
-fn expand_paths_finds_html_files() {
+fn expand_path_finds_html_files() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("a.html"), "<h1>hi</h1>").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
-    let files = expand_paths(&s).unwrap();
+    let s = Settings { path: Some(tmp.path().to_string_lossy().into_owned()), lint: None };
+    let files = expand_path(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("a.html")));
 }
 
 #[test]
-fn expand_paths_finds_md_files() {
+fn expand_path_finds_md_files() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("readme.md"), "# hi").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
-    let files = expand_paths(&s).unwrap();
+    let s = Settings { path: Some(tmp.path().to_string_lossy().into_owned()), lint: None };
+    let files = expand_path(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("readme.md")));
 }
 
 #[test]
-fn expand_paths_ignores_other_extensions() {
+fn expand_path_ignores_other_extensions() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("script.js"), "").unwrap();
     std::fs::write(tmp.path().join("page.html"), "").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
-    let mut files = expand_paths(&s).unwrap();
+    let s = Settings { path: Some(tmp.path().to_string_lossy().into_owned()), lint: None };
+    let mut files = expand_path(&s).unwrap();
     files.retain(|f| !f.ends_with(".js"));
     assert_eq!(files.len(), 1);
     assert!(files[0].ends_with("page.html"));
 }
 
 #[test]
-fn expand_paths_recurses_into_subdirs() {
+fn expand_path_recurses_into_subdirs() {
     let tmp = TempDir::new().unwrap();
     let deep = tmp.path().join("a").join("b");
     std::fs::create_dir_all(&deep).unwrap();
     std::fs::write(deep.join("deep.html"), "").unwrap();
-    let s = Settings { paths: vec![tmp.path().to_string_lossy().into_owned()], lint: None };
-    let files = expand_paths(&s).unwrap();
+    let s = Settings { path: Some(tmp.path().to_string_lossy().into_owned()), lint: None };
+    let files = expand_path(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("deep.html")));
-}
-
-#[test]
-fn expand_paths_multiple_dirs() {
-    let t1 = TempDir::new().unwrap();
-    let t2 = TempDir::new().unwrap();
-    std::fs::write(t1.path().join("one.html"), "").unwrap();
-    std::fs::write(t2.path().join("two.html"), "").unwrap();
-    let s = Settings {
-        paths: vec![
-            t1.path().to_string_lossy().into_owned(),
-            t2.path().to_string_lossy().into_owned(),
-        ],
-        lint: None,
-    };
-    let files = expand_paths(&s).unwrap();
-    assert_eq!(files.len(), 2);
-}
-
-#[test]
-fn expand_paths_nonexistent_dir_returns_empty() {
-    let s = Settings { paths: vec!["/nonexistent/xyz/abc/definitely/not/real".into()], lint: None };
-    let files = expand_paths(&s).unwrap();
-    assert!(files.is_empty());
 }
 
 // ── LintConfig ─────────────────────────────────────────────────────────────
@@ -230,34 +201,8 @@ fn lint_config_disabled_rule_not_enabled() {
 }
 
 #[test]
-fn settings_with_lint_serializes_lint_section() {
-    let s = Settings { paths: vec![], lint: Some(LintConfig::default()) };
-    let json = serde_json::to_string(&s).unwrap();
-    assert!(json.contains("\"lint\""));
-    assert!(json.contains("no-style-blocks"));
-}
-
-#[test]
-fn settings_without_lint_omits_lint_key() {
-    let s = Settings { paths: vec![], lint: None };
-    let json = serde_json::to_string(&s).unwrap();
-    assert!(!json.contains("lint"));
-}
-
-#[test]
-fn settings_roundtrip_with_lint() {
-    let s = Settings {
-        paths: vec!["a".into()],
-        lint: Some(LintConfig { rules: vec!["no-style-blocks".into()] }),
-    };
-    let json = serde_json::to_string(&s).unwrap();
-    let s2: Settings = serde_json::from_str(&json).unwrap();
-    assert_eq!(s2.lint.unwrap().rules, vec!["no-style-blocks"]);
-}
-
-#[test]
-fn settings_lint_absent_from_json_parses_as_none() {
-    let s: Settings = serde_json::from_str(r#"{"paths":[]}"#).unwrap();
+fn settings_lint_field_absent_by_default() {
+    let s: Settings = serde_json::from_str(r#"{}"#).unwrap();
     assert!(s.lint.is_none());
 }
 
@@ -270,8 +215,8 @@ static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn ensure_lint_defaults_writes_rules_to_existing_config() {
     let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
-    let config = tmp.path().join(".ctlgr.json");
-    write_to(&Settings { paths: vec![], lint: None }, &config).unwrap();
+    let config = tmp.path().join(".ctlgr");
+    write_to(&Settings { path: None, lint: None }, &config).unwrap();
     std::env::set_current_dir(&tmp).unwrap();
     ensure_lint_defaults();
     let loaded = load_from(&config).unwrap();
@@ -286,9 +231,9 @@ fn ensure_lint_defaults_writes_rules_to_existing_config() {
 fn ensure_lint_defaults_is_idempotent() {
     let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
-    let config = tmp.path().join(".ctlgr.json");
+    let config = tmp.path().join(".ctlgr");
     let custom = LintConfig { rules: vec!["no-style-blocks".into()] };
-    write_to(&Settings { paths: vec![], lint: Some(custom) }, &config).unwrap();
+    write_to(&Settings { path: None, lint: Some(custom) }, &config).unwrap();
     std::env::set_current_dir(&tmp).unwrap();
     ensure_lint_defaults();
     let loaded = load_from(&config).unwrap();

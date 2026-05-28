@@ -27,23 +27,16 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
-    /// Create a .ctlgr.json in the current directory (takes priority over global config)
-    Init {
-        /// Create .ctlgr.local.json instead (gitignored, takes priority over .ctlgr.json)
-        #[arg(long)]
-        local: bool,
-    },
-    /// Add a directory to the search catalog (searches *.html and *.md recursively)
+    /// Create a .ctlgr config file in the current directory
+    Init,
+    /// Set the catalog directory for this config (replaces any existing value)
     Add {
-        /// Directory path to register
+        /// Directory path to use as the catalog root
         path: String,
     },
-    /// Remove a directory from the search catalog
-    Remove {
-        /// Directory path to remove
-        path: String,
-    },
-    /// List configured search paths
+    /// Clear the configured catalog directory
+    Remove,
+    /// Show the resolved catalog path
     List,
 }
 
@@ -61,8 +54,8 @@ fn main() -> Result<()> {
 
 fn run_config(cmd: ConfigCommands) -> Result<()> {
     match cmd {
-        ConfigCommands::Init { local } => {
-            let path = settings::local_config_path(local)?;
+        ConfigCommands::Init => {
+            let path = settings::config_path()?;
             anyhow::ensure!(
                 !path.exists(),
                 "{} already exists at {}",
@@ -77,34 +70,32 @@ fn run_config(cmd: ConfigCommands) -> Result<()> {
             anyhow::ensure!(p.exists(), "path does not exist: {path}");
             anyhow::ensure!(p.is_dir(), "path is not a directory: {path}");
             let mut cfg = settings::load()?;
-            if cfg.paths.contains(&path) {
+            if cfg.path.as_deref() == Some(&path) {
                 println!("already registered: {path}");
             } else {
-                cfg.paths.push(path.clone());
+                cfg.path = Some(path.clone());
                 settings::save(&cfg)?;
                 println!("added: {path}");
             }
         }
-        ConfigCommands::Remove { path } => {
+        ConfigCommands::Remove => {
             let mut cfg = settings::load()?;
-            let before = cfg.paths.len();
-            cfg.paths.retain(|p| p != &path);
-            if cfg.paths.len() == before {
-                println!("not found: {path}");
+            if cfg.path.is_none() {
+                println!("no path configured");
             } else {
+                cfg.path = None;
                 settings::save(&cfg)?;
-                println!("removed: {path}");
+                println!("removed");
             }
         }
         ConfigCommands::List => {
             let cfg = settings::load()?;
-            if cfg.paths.is_empty() {
-                println!("no paths configured");
-                println!("hint: run `ctlgr config add <path>` to register a search path");
+            let path = settings::resolve_path(&cfg);
+            let is_default = cfg.path.is_none();
+            if is_default {
+                println!("(default) {}", path.display());
             } else {
-                for path in &cfg.paths {
-                    println!("{path}");
-                }
+                println!("{}", path.display());
             }
         }
     }

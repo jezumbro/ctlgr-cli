@@ -101,47 +101,40 @@ Manage config files and registered search paths.
 ctlgr config <subcommand>
 ```
 
-| Subcommand      | Description                                                     |
-| --------------- | --------------------------------------------------------------- |
-| `init`          | Create `.ctlgr.json` in the current directory                   |
-| `init --local`  | Create `.ctlgr.local.json` (gitignored, higher priority)        |
-| `add <path>`    | Register a directory (searches `*.html` and `*.md` recursively) |
-| `remove <path>` | Remove a registered directory                                   |
-| `list`          | List all configured directories from the resolved config        |
+| Subcommand   | Description                                                        |
+| ------------ | ------------------------------------------------------------------ |
+| `init`       | Create `.ctlgr` in the current directory                           |
+| `add <path>` | Set the catalog directory (replaces any existing value)            |
+| `remove`     | Clear the configured catalog directory                             |
+| `list`       | Show the resolved catalog path (or the default if none configured) |
 
 **Config file priority** (first found wins, walking up from CWD):
 
-1. `.ctlgr.local.json` — personal overrides, not committed
-2. `.ctlgr.json` — shared project config
-3. `~/.ctlgr-cli/settings.json` — global fallback
+1. `.ctlgr` — per-directory config
+2. `~/.ctlgr-cli/settings.json` — global fallback
+3. `~/.ctlgr-cli/notes/` — hardcoded default (used when no path is configured)
 
 **Examples**
 
 ```sh
-# Create a project config
+# Create a config in the current directory
 ctlgr config init
 
-# Create a local-only override (add to .gitignore)
-ctlgr config init --local
-
-# Register a directory
+# Set the catalog directory
 ctlgr config add ~/catalog
 
-# Review registered directories (from resolved config)
+# Show the resolved path
 ctlgr config list
 
-# Remove a directory
-ctlgr config remove ~/catalog
+# Clear the configured path (reverts to default)
+ctlgr config remove
 ```
 
-**Config file schema** (`.ctlgr.json` or `.ctlgr.local.json`):
+**Config file schema** (`.ctlgr`):
 
 ```json
 {
-  "paths": [
-    "/Users/you/catalog",
-    "../ctlgr-docs"
-  ]
+  "path": "/Users/you/catalog"
 }
 ```
 

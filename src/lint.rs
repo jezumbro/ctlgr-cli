@@ -263,18 +263,11 @@ fn resolve_files(args: &LintArgs) -> Result<Vec<String>> {
     }
 
     let cfg = settings::load()?;
-    if cfg.paths.is_empty() {
-        anyhow::bail!(
-            "no files specified and no paths configured\n\
-             hint: run `ctlgr config add <path>` to register a search path"
-        );
-    }
-
-    let files = settings::expand_paths(&cfg)?;
+    let files = settings::expand_path(&cfg)?;
     if files.is_empty() {
         anyhow::bail!(
-            "no files found matching configured paths\n\
-             hint: run `ctlgr config list` to review registered paths"
+            "no files found\n\
+             hint: run `ctlgr config add <path>` to register a search path"
         );
     }
 
