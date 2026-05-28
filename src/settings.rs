@@ -123,6 +123,34 @@ pub fn expand_path(settings: &Settings) -> Result<Vec<String>> {
     Ok(files)
 }
 
+#[derive(Deserialize)]
+struct LegacySettings {
+    #[serde(default)]
+    paths: Vec<String>,
+    lint: Option<LintConfig>,
+}
+
+/// Migrate a legacy `.ctlgr.json` or `.ctlgr.local.json` in CWD to `.ctlgr`.
+/// No-op if `.ctlgr` already exists. Silently ignores all errors.
+pub fn migrate_legacy_config() {
+    let Ok(cwd) = std::env::current_dir() else { return };
+    let new_config = cwd.join(".ctlgr");
+    if new_config.exists() {
+        return;
+    }
+    for legacy_name in &[".ctlgr.local.json", ".ctlgr.json"] {
+        let legacy = cwd.join(legacy_name);
+        if !legacy.exists() {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&legacy) else { continue };
+        let Ok(old) = serde_json::from_str::<LegacySettings>(&content) else { continue };
+        let new = Settings { path: old.paths.into_iter().next(), lint: old.lint };
+        let _ = write_to(&new, &new_config);
+        break;
+    }
+}
+
 /// Ensure the resolved config file contains a `lint` section. If the file
 /// exists but the key is absent, write the defaults in place. Silently ignores
 /// all errors — this is a best-effort migration on every invocation.

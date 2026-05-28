@@ -3,7 +3,7 @@ use tempfile::TempDir;
 
 use ctlgr::settings::{
     config_path_from, default_notes_dir, ensure_lint_defaults, expand_path, find_config_from,
-    load_from, resolve_path, write_to, LintConfig, Settings,
+    load_from, migrate_legacy_config, resolve_path, write_to, LintConfig, Settings,
 };
 
 #[test]
@@ -249,4 +249,117 @@ fn ensure_lint_defaults_does_nothing_when_no_config_file() {
     std::env::set_current_dir(&isolated).unwrap();
     ensure_lint_defaults();
     assert!(std::fs::read_dir(&isolated).unwrap().next().is_none());
+}
+
+// ── migrate_legacy_config ──────────────────────────────────────────────────
+
+#[test]
+fn migrate_ctlgr_json_creates_ctlgr() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.json"),
+        r#"{"paths":["/catalog/docs"]}"#,
+    )
+    .unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    migrate_legacy_config();
+    let new_config = tmp.path().join(".ctlgr");
+    assert!(new_config.exists());
+    let loaded = load_from(&new_config).unwrap();
+    assert_eq!(loaded.path, Some("/catalog/docs".into()));
+}
+
+#[test]
+fn migrate_ctlgr_local_json_takes_priority_over_ctlgr_json() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.json"),
+        r#"{"paths":["/committed"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.local.json"),
+        r#"{"paths":["/local"]}"#,
+    )
+    .unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    migrate_legacy_config();
+    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
+    assert_eq!(loaded.path, Some("/local".into()));
+}
+
+#[test]
+fn migrate_preserves_lint_config() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.json"),
+        r#"{"paths":["/docs"],"lint":{"rules":["no-style-blocks"]}}"#,
+    )
+    .unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    migrate_legacy_config();
+    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
+    assert_eq!(loaded.path, Some("/docs".into()));
+    assert_eq!(loaded.lint.unwrap().rules, vec!["no-style-blocks"]);
+}
+
+#[test]
+fn migrate_takes_first_path_from_array() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.json"),
+        r#"{"paths":["/first","/second","/third"]}"#,
+    )
+    .unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    migrate_legacy_config();
+    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
+    assert_eq!(loaded.path, Some("/first".into()));
+}
+
+#[test]
+fn migrate_is_idempotent_when_ctlgr_exists() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr.json"),
+        r#"{"paths":["/old"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join(".ctlgr"),
+        r#"{"path":"/current"}"#,
+    )
+    .unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    migrate_legacy_config();
+    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
+    // existing .ctlgr must not be overwritten
+    assert_eq!(loaded.path, Some("/current".into()));
+}
+
+#[test]
+fn migrate_does_nothing_when_no_legacy_files() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    let isolated = tmp.path().join("isolated");
+    std::fs::create_dir(&isolated).unwrap();
+    std::env::set_current_dir(&isolated).unwrap();
+    migrate_legacy_config();
+    assert!(!isolated.join(".ctlgr").exists());
+}
+
+#[test]
+fn migrate_empty_paths_array_produces_no_path() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":[]}"#).unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    migrate_legacy_config();
+    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
+    assert!(loaded.path.is_none());
 }
