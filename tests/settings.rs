@@ -6,6 +6,7 @@ use ctlgr::settings::{
     load_from, migrate_legacy_config, resolve_path, write_to, LintConfig, Settings,
 };
 
+
 #[test]
 fn settings_default_has_no_path() {
     assert!(Settings::default().path.is_none());
@@ -27,8 +28,14 @@ fn settings_missing_path_field_defaults_none() {
 
 #[test]
 fn config_path_from_returns_ctlgr() {
-    let p = config_path_from(Path::new("/some/dir"));
+    let p = config_path_from(Path::new("/some/dir"), false);
     assert_eq!(p, Path::new("/some/dir/.ctlgr"));
+}
+
+#[test]
+fn config_path_from_local_returns_ctlgr_local() {
+    let p = config_path_from(Path::new("/some/dir"), true);
+    assert_eq!(p, Path::new("/some/dir/.ctlgr.local"));
 }
 
 #[test]
@@ -40,6 +47,23 @@ fn find_config_from_finds_ctlgr() {
 }
 
 #[test]
+fn find_config_from_finds_ctlgr_local() {
+    let tmp = TempDir::new().unwrap();
+    let local = tmp.path().join(".ctlgr.local");
+    std::fs::write(&local, "{}").unwrap();
+    assert_eq!(find_config_from(tmp.path()).unwrap(), local);
+}
+
+#[test]
+fn find_config_from_local_beats_ctlgr_at_same_level() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.local"), "{}").unwrap();
+    std::fs::write(tmp.path().join(".ctlgr"), "{}").unwrap();
+    let found = find_config_from(tmp.path()).unwrap();
+    assert_eq!(found.file_name().unwrap(), ".ctlgr.local");
+}
+
+#[test]
 fn find_config_from_walks_up() {
     let tmp = TempDir::new().unwrap();
     let sub = tmp.path().join("a").join("b");
@@ -47,6 +71,18 @@ fn find_config_from_walks_up() {
     let config = tmp.path().join(".ctlgr");
     std::fs::write(&config, "{}").unwrap();
     assert_eq!(find_config_from(&sub).unwrap(), config);
+}
+
+#[test]
+fn find_config_from_exhausts_names_at_level_before_ascending() {
+    // sub has .ctlgr but not .ctlgr.local; parent has .ctlgr.local
+    // should return sub/.ctlgr, not ascend to parent's .ctlgr.local
+    let tmp = TempDir::new().unwrap();
+    let sub = tmp.path().join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join(".ctlgr"), "{}").unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.local"), "{}").unwrap();
+    assert_eq!(find_config_from(&sub).unwrap(), sub.join(".ctlgr"));
 }
 
 #[test]
@@ -272,26 +308,21 @@ fn migrate_ctlgr_json_creates_ctlgr() {
 }
 
 #[test]
-fn migrate_ctlgr_local_json_takes_priority_over_ctlgr_json() {
+fn migrate_both_legacy_files_independently() {
     let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
-    std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        r#"{"paths":["/committed"]}"#,
-    )
-    .unwrap();
-    std::fs::write(
-        tmp.path().join(".ctlgr.local.json"),
-        r#"{"paths":["/local"]}"#,
-    )
-    .unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":["/committed"]}"#).unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.local.json"), r#"{"paths":["/local"]}"#).unwrap();
     std::env::set_current_dir(&tmp).unwrap();
     migrate_legacy_config();
-    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
-    assert_eq!(loaded.path, Some("/local".into()));
-    assert!(!tmp.path().join(".ctlgr.local.json").exists(), "local legacy file should be removed");
-    // .ctlgr.json left untouched — only the winning file is removed
-    assert!(tmp.path().join(".ctlgr.json").exists());
+    // both legacy files removed
+    assert!(!tmp.path().join(".ctlgr.json").exists());
+    assert!(!tmp.path().join(".ctlgr.local.json").exists());
+    // each migrated to its new name
+    let committed = load_from(&tmp.path().join(".ctlgr")).unwrap();
+    assert_eq!(committed.path, Some("/committed".into()));
+    let local = load_from(&tmp.path().join(".ctlgr.local")).unwrap();
+    assert_eq!(local.path, Some("/local".into()));
 }
 
 #[test]
@@ -326,24 +357,21 @@ fn migrate_takes_first_path_from_array() {
 }
 
 #[test]
-fn migrate_is_idempotent_when_ctlgr_exists() {
+fn migrate_is_idempotent_when_new_files_exist() {
     let _guard = CWD_LOCK.lock().unwrap();
     let tmp = TempDir::new().unwrap();
-    std::fs::write(
-        tmp.path().join(".ctlgr.json"),
-        r#"{"paths":["/old"]}"#,
-    )
-    .unwrap();
-    std::fs::write(
-        tmp.path().join(".ctlgr"),
-        r#"{"path":"/current"}"#,
-    )
-    .unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.json"), r#"{"paths":["/old"]}"#).unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.local.json"), r#"{"paths":["/old-local"]}"#).unwrap();
+    std::fs::write(tmp.path().join(".ctlgr"), r#"{"path":"/current"}"#).unwrap();
+    std::fs::write(tmp.path().join(".ctlgr.local"), r#"{"path":"/current-local"}"#).unwrap();
     std::env::set_current_dir(&tmp).unwrap();
     migrate_legacy_config();
-    let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
-    // existing .ctlgr must not be overwritten
-    assert_eq!(loaded.path, Some("/current".into()));
+    // existing new files must not be overwritten
+    assert_eq!(load_from(&tmp.path().join(".ctlgr")).unwrap().path, Some("/current".into()));
+    assert_eq!(
+        load_from(&tmp.path().join(".ctlgr.local")).unwrap().path,
+        Some("/current-local".into())
+    );
 }
 
 #[test]

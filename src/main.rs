@@ -28,7 +28,11 @@ enum Commands {
 #[derive(Subcommand)]
 enum ConfigCommands {
     /// Create a .ctlgr config file in the current directory
-    Init,
+    Init {
+        /// Create .ctlgr.local instead (gitignored, higher priority than .ctlgr)
+        #[arg(long)]
+        local: bool,
+    },
     /// Set the catalog directory for this config (replaces any existing value)
     Add {
         /// Directory path to use as the catalog root
@@ -55,8 +59,8 @@ fn main() -> Result<()> {
 
 fn run_config(cmd: ConfigCommands) -> Result<()> {
     match cmd {
-        ConfigCommands::Init => {
-            let path = settings::config_path()?;
+        ConfigCommands::Init { local } => {
+            let path = settings::config_path(local)?;
             anyhow::ensure!(
                 !path.exists(),
                 "{} already exists at {}",

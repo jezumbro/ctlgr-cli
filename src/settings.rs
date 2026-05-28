@@ -47,12 +47,16 @@ fn global_config_path() -> Result<PathBuf> {
     Ok(home.join(".ctlgr-cli").join("settings.json"))
 }
 
+/// Walk up from `start` checking `.ctlgr.local` then `.ctlgr` at each level.
+/// Falls back to the global config when neither is found anywhere.
 pub fn find_config_from(start: &Path) -> Result<PathBuf> {
     let mut dir = start;
     loop {
-        let candidate = dir.join(".ctlgr");
-        if candidate.exists() {
-            return Ok(candidate);
+        for name in &[".ctlgr.local", ".ctlgr"] {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return Ok(candidate);
+            }
         }
         match dir.parent() {
             Some(parent) => dir = parent,
@@ -62,13 +66,14 @@ pub fn find_config_from(start: &Path) -> Result<PathBuf> {
     global_config_path()
 }
 
-pub fn config_path_from(cwd: &Path) -> PathBuf {
-    cwd.join(".ctlgr")
+pub fn config_path_from(cwd: &Path, local: bool) -> PathBuf {
+    let name = if local { ".ctlgr.local" } else { ".ctlgr" };
+    cwd.join(name)
 }
 
-pub fn config_path() -> Result<PathBuf> {
+pub fn config_path(local: bool) -> Result<PathBuf> {
     let cwd = std::env::current_dir().context("could not determine current directory")?;
-    Ok(config_path_from(&cwd))
+    Ok(config_path_from(&cwd, local))
 }
 
 pub fn load_from(path: &Path) -> Result<Settings> {
@@ -130,17 +135,17 @@ struct LegacySettings {
     lint: Option<LintConfig>,
 }
 
-/// Migrate a legacy `.ctlgr.json` or `.ctlgr.local.json` in CWD to `.ctlgr`.
-/// No-op if `.ctlgr` already exists. Silently ignores all errors.
+/// Migrate legacy config files in CWD to the new format. Each file is handled
+/// independently: `.ctlgr.local.json` → `.ctlgr.local`, `.ctlgr.json` → `.ctlgr`.
+/// Skips a file if its new-format target already exists. Silently ignores errors.
 pub fn migrate_legacy_config() {
     let Ok(cwd) = std::env::current_dir() else { return };
-    let new_config = cwd.join(".ctlgr");
-    if new_config.exists() {
-        return;
-    }
-    for legacy_name in &[".ctlgr.local.json", ".ctlgr.json"] {
+    for (legacy_name, new_name) in
+        &[(".ctlgr.local.json", ".ctlgr.local"), (".ctlgr.json", ".ctlgr")]
+    {
         let legacy = cwd.join(legacy_name);
-        if !legacy.exists() {
+        let new_config = cwd.join(new_name);
+        if !legacy.exists() || new_config.exists() {
             continue;
         }
         let Ok(content) = std::fs::read_to_string(&legacy) else { continue };
@@ -149,7 +154,6 @@ pub fn migrate_legacy_config() {
         if write_to(&new, &new_config).is_ok() {
             let _ = std::fs::remove_file(&legacy);
         }
-        break;
     }
 }
 
