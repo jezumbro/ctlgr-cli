@@ -89,9 +89,46 @@ pub fn load_from(path: &Path) -> Result<Settings> {
         .with_context(|| format!("parsing {}", path.display()))
 }
 
+/// Walk up from `start` collecting `excluded` patterns from every config file
+/// in the chain (.ctlgr.local, .ctlgr at each level, then global settings).
+/// Returns a deduplicated merged list; first occurrence of each pattern wins.
+fn collect_excluded_from(start: &Path) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut patterns = Vec::new();
+    let mut dir = start;
+    loop {
+        for name in &[".ctlgr.local", ".ctlgr"] {
+            let candidate = dir.join(name);
+            if let Ok(cfg) = load_from(&candidate) {
+                for p in cfg.excluded {
+                    if seen.insert(p.clone()) {
+                        patterns.push(p);
+                    }
+                }
+            }
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+    if let Ok(global) = global_config_path() {
+        if let Ok(cfg) = load_from(&global) {
+            for p in cfg.excluded {
+                if seen.insert(p.clone()) {
+                    patterns.push(p);
+                }
+            }
+        }
+    }
+    patterns
+}
+
 pub fn load() -> Result<Settings> {
     let cwd = std::env::current_dir().context("could not determine current directory")?;
-    load_from(&find_config_from(&cwd)?)
+    let mut settings = load_from(&find_config_from(&cwd)?)?;
+    settings.excluded = collect_excluded_from(&cwd);
+    Ok(settings)
 }
 
 pub fn save(settings: &Settings) -> Result<()> {

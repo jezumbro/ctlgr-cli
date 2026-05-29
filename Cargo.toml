@@ -14,6 +14,7 @@ dprint = "0.54"
 tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
+criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -29,3 +30,7 @@ semver = "1"
 ureq = { version = "3", features = ["json"] }
 pulldown-cmark = "0.13.4"
 regex = "1.12.3"
+
+[[bench]]
+name = "startup"
+harness = false
