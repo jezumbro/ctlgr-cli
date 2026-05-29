@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "You are finishing a Claude Code session for the ctlgr-cli project. Your job is to keep ctlgr-docs/ up to date.\n\n1. Run: ctlgr search \"h1,h2,h3\" --json tag,text,path  to see all existing docs\n2. Run: git diff HEAD --name-only  to see what files changed this session\n3. Run: git log -1 --format='%s'  to see what the last commit was about\n\nIf any commands, flags, or behaviors were added/changed that are not yet reflected in ctlgr-docs/, update or create the relevant .html file(s) following the convention in .claude/commands/add-doc.md.\n\nConstraints:\n- Only write .html files in ctlgr-docs/. Do not convert AGENTS.md or CLAUDE.md to HTML — those are Markdown files kept in the repo as-is.\n- Do not create docs for internal refactors that don't affect CLI behavior.\n- If nothing significant changed or docs are already current, do nothing."
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "agent",
+            "prompt": "A conversation compaction just occurred for the ctlgr-cli project. Review the compaction summary to identify any new commands, flags, or CLI behaviors that were discussed or implemented.\n\n1. Run: ctlgr search \"h1,h2,h3\" --json tag,text,path  to see existing docs\n2. Check if the summary mentions new CLI surface (commands, flags, config options)\n\nIf anything is missing from ctlgr-docs/, update or create the relevant .html file(s) following the convention in .claude/commands/add-doc.md.\n\nConstraints:\n- Only write .html files in ctlgr-docs/. Do not convert AGENTS.md or CLAUDE.md to HTML — those are Markdown files kept in the repo as-is.\n- If docs are already current, do nothing."
+          }
+        ]
+      }
+    ]
+  }
+}
