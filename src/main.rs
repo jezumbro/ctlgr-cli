@@ -43,6 +43,7 @@ fn main() -> Result<()> {
     update::check_and_notify();
     settings::migrate_legacy_config();
     settings::migrate_global_settings();
+    settings::ensure_global_excluded_defaults();
     settings::ensure_lint_defaults();
     let cli = Cli::parse();
     match cli.command {
