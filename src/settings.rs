@@ -302,6 +302,91 @@ mod tests_global_migrate {
     }
 }
 
+/// Seed `excluded` in the global settings.json with `["AGENTS\\.md"]` if the
+/// key is absent. Creates the file if it doesn't exist yet. Silently ignores
+/// errors. Users can change or clear the list — it is not re-seeded once set.
+pub fn ensure_global_excluded_defaults() {
+    let Ok(global) = global_config_path() else { return };
+    ensure_global_excluded_defaults_at(&global);
+}
+
+fn ensure_global_excluded_defaults_at(path: &Path) {
+    let content = if path.exists() {
+        match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return,
+        }
+    } else {
+        "{}".to_string()
+    };
+    let already_set = serde_json::from_str::<serde_json::Value>(&content)
+        .ok()
+        .and_then(|v| v.get("excluded").cloned())
+        .is_some();
+    if already_set {
+        return;
+    }
+    let Ok(mut cfg) = serde_json::from_str::<Settings>(&content) else { return };
+    cfg.excluded = vec!["AGENTS\\.md".into()];
+    let _ = write_to(&cfg, path);
+}
+
+#[cfg(test)]
+mod tests_global_excluded_defaults {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn seeds_excluded_when_key_absent() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, "{}").unwrap();
+        ensure_global_excluded_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.excluded, vec!["AGENTS\\.md"]);
+    }
+
+    #[test]
+    fn creates_file_when_missing() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        ensure_global_excluded_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.excluded, vec!["AGENTS\\.md"]);
+    }
+
+    #[test]
+    fn skips_when_excluded_key_present_and_non_empty() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"excluded":["custom\\.md"]}"#).unwrap();
+        ensure_global_excluded_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.excluded, vec!["custom\\.md"]);
+    }
+
+    #[test]
+    fn skips_when_excluded_key_present_and_empty() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"excluded":[]}"#).unwrap();
+        ensure_global_excluded_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert!(loaded.excluded.is_empty());
+    }
+
+    #[test]
+    fn preserves_existing_fields() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"path":"/catalog"}"#).unwrap();
+        ensure_global_excluded_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.path, Some("/catalog".into()));
+        assert_eq!(loaded.excluded, vec!["AGENTS\\.md"]);
+    }
+}
+
 /// Ensure the resolved config file contains a `lint` section. If the file
 /// exists but the key is absent, write the defaults in place. Silently ignores
 /// all errors — this is a best-effort migration on every invocation.
