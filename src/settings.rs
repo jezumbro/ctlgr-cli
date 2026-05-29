@@ -205,6 +205,103 @@ pub fn migrate_legacy_config() {
     }
 }
 
+/// Migrate the global settings.json from the legacy `paths` array to the new
+/// single-`path` format. Runs if `path` is absent but `paths` is non-empty.
+/// Silently ignores errors — this is a best-effort migration on every invocation.
+pub fn migrate_global_settings() {
+    let Ok(global) = global_config_path() else { return };
+    migrate_global_settings_at(&global);
+}
+
+fn migrate_global_settings_at(global: &Path) {
+    if !global.exists() {
+        return;
+    }
+    let Ok(content) = std::fs::read_to_string(global) else { return };
+    let Ok(current) = serde_json::from_str::<Settings>(&content) else { return };
+    if current.path.is_some() {
+        return;
+    }
+    let Ok(legacy) = serde_json::from_str::<LegacySettings>(&content) else { return };
+    if legacy.paths.is_empty() {
+        return;
+    }
+    let migrated = Settings {
+        path: legacy.paths.into_iter().next(),
+        lint: legacy.lint,
+        excluded: current.excluded,
+    };
+    let _ = write_to(&migrated, global);
+}
+
+#[cfg(test)]
+mod tests_global_migrate {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn converts_paths_to_path() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("settings.json");
+        std::fs::write(&global, r#"{"paths":["/my/catalog"]}"#).unwrap();
+        migrate_global_settings_at(&global);
+        let loaded = load_from(&global).unwrap();
+        assert_eq!(loaded.path, Some("/my/catalog".into()));
+    }
+
+    #[test]
+    fn takes_first_path() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("settings.json");
+        std::fs::write(&global, r#"{"paths":["/first","/second"]}"#).unwrap();
+        migrate_global_settings_at(&global);
+        let loaded = load_from(&global).unwrap();
+        assert_eq!(loaded.path, Some("/first".into()));
+    }
+
+    #[test]
+    fn preserves_lint() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("settings.json");
+        std::fs::write(
+            &global,
+            r#"{"paths":["/catalog"],"lint":{"rules":["no-style-blocks"]}}"#,
+        )
+        .unwrap();
+        migrate_global_settings_at(&global);
+        let loaded = load_from(&global).unwrap();
+        assert_eq!(loaded.path, Some("/catalog".into()));
+        assert_eq!(loaded.lint.unwrap().rules, vec!["no-style-blocks"]);
+    }
+
+    #[test]
+    fn skips_when_path_already_set() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("settings.json");
+        std::fs::write(&global, r#"{"path":"/current"}"#).unwrap();
+        migrate_global_settings_at(&global);
+        let loaded = load_from(&global).unwrap();
+        assert_eq!(loaded.path, Some("/current".into()));
+    }
+
+    #[test]
+    fn skips_when_paths_empty() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("settings.json");
+        std::fs::write(&global, r#"{"paths":[]}"#).unwrap();
+        migrate_global_settings_at(&global);
+        let loaded = load_from(&global).unwrap();
+        assert!(loaded.path.is_none());
+    }
+
+    #[test]
+    fn skips_nonexistent_file() {
+        let tmp = TempDir::new().unwrap();
+        migrate_global_settings_at(&tmp.path().join("nonexistent.json"));
+        assert!(!tmp.path().join("nonexistent.json").exists());
+    }
+}
+
 /// Ensure the resolved config file contains a `lint` section. If the file
 /// exists but the key is absent, write the defaults in place. Silently ignores
 /// all errors — this is a best-effort migration on every invocation.

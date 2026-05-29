@@ -510,3 +510,4 @@ fn migrate_empty_paths_array_produces_no_path() {
     let loaded = load_from(&tmp.path().join(".ctlgr")).unwrap();
     assert!(loaded.path.is_none());
 }
+
