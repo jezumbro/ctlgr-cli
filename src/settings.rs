@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -33,6 +34,8 @@ pub struct Settings {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lint: Option<LintConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded: Vec<String>,
 }
 
 pub fn default_catalog_dir() -> PathBuf {
@@ -112,9 +115,13 @@ pub fn resolve_path(settings: &Settings) -> PathBuf {
 }
 
 /// Expand the resolved catalog directory into a list of .html and .md files.
+/// Files whose path matches any pattern in `settings.excluded` are omitted.
+/// Invalid regex patterns are silently skipped.
 pub fn expand_path(settings: &Settings) -> Result<Vec<String>> {
     let dir = resolve_path(settings);
     let dir_str = dir.to_string_lossy();
+    let excludes: Vec<Regex> =
+        settings.excluded.iter().filter_map(|p| Regex::new(p).ok()).collect();
     let mut files = Vec::new();
     for ext in &["html", "md"] {
         let pattern = format!("{dir_str}/**/*.{ext}");
@@ -122,7 +129,11 @@ pub fn expand_path(settings: &Settings) -> Result<Vec<String>> {
             .with_context(|| format!("invalid glob pattern: {pattern}"))?;
         for entry in entries {
             let path = entry.with_context(|| format!("expanding {pattern}"))?;
-            files.push(path.to_string_lossy().into_owned());
+            let path_str = path.to_string_lossy();
+            if excludes.iter().any(|re| re.is_match(&path_str)) {
+                continue;
+            }
+            files.push(path_str.into_owned());
         }
     }
     Ok(files)
@@ -150,7 +161,7 @@ pub fn migrate_legacy_config() {
         }
         let Ok(content) = std::fs::read_to_string(&legacy) else { continue };
         let Ok(old) = serde_json::from_str::<LegacySettings>(&content) else { continue };
-        let new = Settings { path: old.paths.into_iter().next(), lint: old.lint };
+        let new = Settings { path: old.paths.into_iter().next(), lint: old.lint, excluded: vec![] };
         if write_to(&new, &new_config).is_ok() {
             let _ = std::fs::remove_file(&legacy);
         }

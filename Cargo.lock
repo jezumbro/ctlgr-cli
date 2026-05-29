@@ -259,6 +259,7 @@ dependencies = [
  "htmd",
  "predicates",
  "pulldown-cmark",
+ "regex",
  "scraper",
  "semver",
  "serde",

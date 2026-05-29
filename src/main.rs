@@ -65,7 +65,7 @@ fn run_config(cmd: ConfigCommands) -> Result<()> {
                 config_path.file_name().unwrap().to_string_lossy(),
                 config_path.display()
             );
-            let cfg = settings::Settings { path: Some(path), lint: None };
+            let cfg = settings::Settings { path: Some(path), lint: None, excluded: vec![] };
             settings::write_to(&cfg, &config_path)?;
             println!("created: {}", config_path.display());
         }

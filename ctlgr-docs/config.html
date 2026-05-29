@@ -62,11 +62,19 @@ ctlgr config init --local ~/my-catalog</code></pre>
     <section id="schema">
       <h2>Config file schema</h2>
       <pre><code>{
-  "path": "/Users/you/catalog"
+  "path": "/Users/you/catalog",
+  "excluded": ["AGENTS\\.md", "drafts/"]
 }</code></pre>
       <dl>
         <dt><code>path</code></dt>
         <dd>Absolute path to the catalog directory. All <code>*.html</code> and <code>*.md</code> files under it are searched recursively. Newly added files are picked up automatically.</dd>
+        <dt><code>excluded</code></dt>
+        <dd>
+          Array of regex patterns. Any expanded file whose full path matches one of these patterns is
+          omitted from search and lint results. Simple filenames (<code>AGENTS\.md</code>) and
+          directory prefixes (<code>drafts/</code>) work as patterns. Invalid regex entries are
+          silently skipped. Omit or leave empty to exclude nothing.
+        </dd>
       </dl>
     </section>
   </article>
