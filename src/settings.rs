@@ -90,9 +90,9 @@ pub fn load_from(path: &Path) -> Result<Settings> {
 }
 
 /// Walk up from `start` collecting `excluded` patterns from every config file
-/// in the chain (.ctlgr.local, .ctlgr at each level, then global settings).
-/// Returns a deduplicated merged list; first occurrence of each pattern wins.
-fn collect_excluded_from(start: &Path) -> Vec<String> {
+/// in the chain (.ctlgr.local, .ctlgr at each level, then the optional
+/// `global` path). Returns a deduplicated merged list; first occurrence wins.
+fn collect_excluded_from(start: &Path, global: Option<&Path>) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut patterns = Vec::new();
     let mut dir = start;
@@ -112,8 +112,8 @@ fn collect_excluded_from(start: &Path) -> Vec<String> {
             None => break,
         }
     }
-    if let Ok(global) = global_config_path() {
-        if let Ok(cfg) = load_from(&global) {
+    if let Some(global_path) = global {
+        if let Ok(cfg) = load_from(global_path) {
             for p in cfg.excluded {
                 if seen.insert(p.clone()) {
                     patterns.push(p);
@@ -126,8 +126,9 @@ fn collect_excluded_from(start: &Path) -> Vec<String> {
 
 pub fn load() -> Result<Settings> {
     let cwd = std::env::current_dir().context("could not determine current directory")?;
+    let global = global_config_path().ok();
     let mut settings = load_from(&find_config_from(&cwd)?)?;
-    settings.excluded = collect_excluded_from(&cwd);
+    settings.excluded = collect_excluded_from(&cwd, global.as_deref());
     Ok(settings)
 }
 
@@ -257,6 +258,67 @@ fn ensure_global_defaults_at(path: &Path) {
 }
 
 #[cfg(test)]
+mod tests_collect_excluded {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn merges_excluded_from_global_path() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("global.json");
+        write_to(
+            &Settings { path: None, lint: None, excluded: vec!["global-pattern".into()] },
+            &global,
+        )
+        .unwrap();
+        let result = collect_excluded_from(tmp.path(), Some(&global));
+        assert!(result.contains(&"global-pattern".to_string()));
+    }
+
+    #[test]
+    fn deduplicates_between_project_and_global() {
+        let tmp = TempDir::new().unwrap();
+        write_to(
+            &Settings { path: None, lint: None, excluded: vec!["shared".into()] },
+            &tmp.path().join(".ctlgr"),
+        )
+        .unwrap();
+        let global = tmp.path().join("global.json");
+        write_to(
+            &Settings { path: None, lint: None, excluded: vec!["shared".into()] },
+            &global,
+        )
+        .unwrap();
+        let result = collect_excluded_from(tmp.path(), Some(&global));
+        assert_eq!(result.iter().filter(|p| *p == "shared").count(), 1);
+    }
+
+    #[test]
+    fn skips_malformed_config_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join(".ctlgr"), "not json").unwrap();
+        let result = collect_excluded_from(tmp.path(), None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn no_global_path_is_safe() {
+        let tmp = TempDir::new().unwrap();
+        let result = collect_excluded_from(tmp.path(), None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn malformed_global_file_is_skipped() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("global.json");
+        std::fs::write(&global, "not json").unwrap();
+        let result = collect_excluded_from(tmp.path(), Some(&global));
+        assert!(result.is_empty());
+    }
+}
+
+#[cfg(test)]
 mod tests_global_defaults {
     use super::*;
     use tempfile::TempDir;
@@ -348,6 +410,41 @@ mod tests_global_defaults {
         let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
         assert_eq!(mtime_before, mtime_after, "file should not be rewritten");
     }
+
+    #[test]
+    fn empty_paths_array_leaves_path_as_none() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"paths":[]}"#).unwrap();
+        ensure_global_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert!(loaded.path.is_none());
+        assert!(loaded.lint.is_some());
+    }
+
+    #[test]
+    fn malformed_paths_field_is_skipped_during_migration() {
+        // "paths" is not an array — LegacySettings fails to parse, so migration
+        // is skipped; defaults are still seeded.
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"paths":"not-an-array"}"#).unwrap();
+        ensure_global_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert!(loaded.path.is_none()); // not migrated
+        assert!(loaded.lint.is_some()); // lint defaults seeded
+    }
+
+    #[test]
+    fn returns_early_on_unreadable_file() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        // Writing a directory at the path makes read_to_string fail.
+        std::fs::create_dir(&path).unwrap();
+        ensure_global_defaults_at(&path); // must not panic
+        // The "file" is still a directory — nothing was written.
+        assert!(path.is_dir());
+    }
 }
 
 /// Ensure the resolved project config contains a `lint` section. Skips if the
@@ -358,9 +455,6 @@ pub fn ensure_lint_defaults() {
     let Ok(config_path) = find_config_from(&cwd) else { return };
     // Global settings handled in ensure_global_defaults — avoid double read/write.
     if global_config_path().map_or(false, |g| g == config_path) {
-        return;
-    }
-    if !config_path.exists() {
         return;
     }
     let Ok(mut cfg) = load_from(&config_path) else { return };
