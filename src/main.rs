@@ -27,19 +27,14 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ConfigCommands {
-    /// Create a .ctlgr config file in the current directory
+    /// Create a .ctlgr config file in the current directory with a catalog path
     Init {
+        /// Catalog directory to register
+        path: String,
         /// Create .ctlgr.local instead (gitignored, higher priority than .ctlgr)
         #[arg(long)]
         local: bool,
     },
-    /// Set the catalog directory for this config (replaces any existing value)
-    Add {
-        /// Directory path to use as the catalog root
-        path: String,
-    },
-    /// Clear the configured catalog directory
-    Remove,
     /// Show the resolved catalog path
     List,
 }
@@ -59,45 +54,25 @@ fn main() -> Result<()> {
 
 fn run_config(cmd: ConfigCommands) -> Result<()> {
     match cmd {
-        ConfigCommands::Init { local } => {
-            let path = settings::config_path(local)?;
-            anyhow::ensure!(
-                !path.exists(),
-                "{} already exists at {}",
-                path.file_name().unwrap().to_string_lossy(),
-                path.display()
-            );
-            settings::write_to(&settings::Settings::default(), &path)?;
-            println!("created: {}", path.display());
-        }
-        ConfigCommands::Add { path } => {
+        ConfigCommands::Init { path, local } => {
             let p = std::path::Path::new(&path);
             anyhow::ensure!(p.exists(), "path does not exist: {path}");
             anyhow::ensure!(p.is_dir(), "path is not a directory: {path}");
-            let mut cfg = settings::load()?;
-            if cfg.path.as_deref() == Some(&path) {
-                println!("already registered: {path}");
-            } else {
-                cfg.path = Some(path.clone());
-                settings::save(&cfg)?;
-                println!("added: {path}");
-            }
-        }
-        ConfigCommands::Remove => {
-            let mut cfg = settings::load()?;
-            if cfg.path.is_none() {
-                println!("no path configured");
-            } else {
-                cfg.path = None;
-                settings::save(&cfg)?;
-                println!("removed");
-            }
+            let config_path = settings::config_path(local)?;
+            anyhow::ensure!(
+                !config_path.exists(),
+                "{} already exists at {}",
+                config_path.file_name().unwrap().to_string_lossy(),
+                config_path.display()
+            );
+            let cfg = settings::Settings { path: Some(path), lint: None };
+            settings::write_to(&cfg, &config_path)?;
+            println!("created: {}", config_path.display());
         }
         ConfigCommands::List => {
             let cfg = settings::load()?;
             let path = settings::resolve_path(&cfg);
-            let is_default = cfg.path.is_none();
-            if is_default {
+            if cfg.path.is_none() {
                 println!("(default) {}", path.display());
             } else {
                 println!("{}", path.display());

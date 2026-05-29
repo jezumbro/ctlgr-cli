@@ -101,33 +101,32 @@ Manage config files and registered search paths.
 ctlgr config <subcommand>
 ```
 
-| Subcommand   | Description                                                        |
-| ------------ | ------------------------------------------------------------------ |
-| `init`       | Create `.ctlgr` in the current directory                           |
-| `add <path>` | Set the catalog directory (replaces any existing value)            |
-| `remove`     | Clear the configured catalog directory                             |
-| `list`       | Show the resolved catalog path (or the default if none configured) |
+| Subcommand            | Description                                                        |
+| --------------------- | ------------------------------------------------------------------ |
+| `init <path>`         | Create `.ctlgr` with the given catalog directory                   |
+| `init --local <path>` | Create `.ctlgr.local` instead (gitignored, higher priority)        |
+| `list`                | Show the resolved catalog path (or the default if none configured) |
+
+To change the path, delete `.ctlgr` and re-run `config init`. To revert to the default, delete `.ctlgr`.
 
 **Config file priority** (first found wins, walking up from CWD):
 
-1. `.ctlgr` — per-directory config
-2. `~/.ctlgr-cli/settings.json` — global fallback
-3. `~/.ctlgr-cli/notes/` — hardcoded default (used when no path is configured)
+1. `.ctlgr.local` — personal overrides, not committed
+2. `.ctlgr` — per-directory config
+3. `~/.ctlgr-cli/settings.json` — global fallback
+4. `~/.ctlgr-cli/notes/` — hardcoded default (used when no path is configured)
 
 **Examples**
 
 ```sh
-# Create a config in the current directory
-ctlgr config init
+# Create a config for this directory
+ctlgr config init ~/catalog
 
-# Set the catalog directory
-ctlgr config add ~/catalog
+# Create a local-only override
+ctlgr config init --local ~/my-personal-catalog
 
 # Show the resolved path
 ctlgr config list
-
-# Clear the configured path (reverts to default)
-ctlgr config remove
 ```
 
 **Config file schema** (`.ctlgr`):
