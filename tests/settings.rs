@@ -3,7 +3,7 @@ use tempfile::TempDir;
 
 use ctlgr::settings::{
     config_path_from, default_catalog_dir, ensure_lint_defaults, expand_path, find_config_from,
-    load_from, migrate_legacy_config, resolve_path, write_to, LintConfig, Settings,
+    load, load_from, migrate_legacy_config, resolve_path, write_to, LintConfig, Settings,
 };
 
 
@@ -275,6 +275,56 @@ fn expand_path_invalid_regex_is_skipped() {
     };
     let files = expand_path(&s).unwrap();
     assert!(files.iter().any(|f| f.ends_with("page.html")));
+}
+
+// ── excluded merging across config levels ─────────────────────────────────
+
+#[test]
+fn load_merges_excluded_from_parent_configs() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    // parent dir: .ctlgr with one excluded pattern
+    let parent_cfg = tmp.path().join(".ctlgr");
+    write_to(
+        &Settings { path: None, lint: None, excluded: vec!["parent-pattern".into()] },
+        &parent_cfg,
+    )
+    .unwrap();
+    // child dir: .ctlgr with a different excluded pattern
+    let child = tmp.path().join("child");
+    std::fs::create_dir(&child).unwrap();
+    let child_cfg = child.join(".ctlgr");
+    write_to(
+        &Settings { path: None, lint: None, excluded: vec!["child-pattern".into()] },
+        &child_cfg,
+    )
+    .unwrap();
+    std::env::set_current_dir(&child).unwrap();
+    let loaded = load().unwrap();
+    assert!(loaded.excluded.contains(&"child-pattern".to_string()));
+    assert!(loaded.excluded.contains(&"parent-pattern".to_string()));
+}
+
+#[test]
+fn load_deduplicates_excluded_patterns() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    let parent_cfg = tmp.path().join(".ctlgr");
+    write_to(
+        &Settings { path: None, lint: None, excluded: vec!["same-pattern".into()] },
+        &parent_cfg,
+    )
+    .unwrap();
+    let child = tmp.path().join("child");
+    std::fs::create_dir(&child).unwrap();
+    write_to(
+        &Settings { path: None, lint: None, excluded: vec!["same-pattern".into()] },
+        &child.join(".ctlgr"),
+    )
+    .unwrap();
+    std::env::set_current_dir(&child).unwrap();
+    let loaded = load().unwrap();
+    assert_eq!(loaded.excluded.iter().filter(|p| *p == "same-pattern").count(), 1);
 }
 
 // ── LintConfig ─────────────────────────────────────────────────────────────
