@@ -390,7 +390,7 @@ fn config_list_shows_default_when_no_config() {
         .assert()
         .success()
         .stdout(predicate::str::contains(".ctlgr-cli"))
-        .stdout(predicate::str::contains("notes"));
+        .stdout(predicate::str::contains("catalog"));
 }
 
 // ── lint ──────────────────────────────────────────────────────────────────
