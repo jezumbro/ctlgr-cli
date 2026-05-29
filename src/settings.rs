@@ -205,112 +205,18 @@ pub fn migrate_legacy_config() {
     }
 }
 
-/// Migrate the global settings.json from the legacy `paths` array to the new
-/// single-`path` format. Runs if `path` is absent but `paths` is non-empty.
-/// Silently ignores errors — this is a best-effort migration on every invocation.
-pub fn migrate_global_settings() {
+/// Apply all global settings.json defaults and migrations in a single pass:
+///   1. Migrate legacy `paths` array → `path`
+///   2. Seed `excluded: ["AGENTS\\.md"]` if the key is absent
+///   3. Seed `lint` defaults if the key is absent
+/// Reads the file once and writes at most once (only if something changed).
+/// Creates the file if it doesn't exist. Silently ignores errors.
+pub fn ensure_global_defaults() {
     let Ok(global) = global_config_path() else { return };
-    migrate_global_settings_at(&global);
+    ensure_global_defaults_at(&global);
 }
 
-fn migrate_global_settings_at(global: &Path) {
-    if !global.exists() {
-        return;
-    }
-    let Ok(content) = std::fs::read_to_string(global) else { return };
-    let Ok(current) = serde_json::from_str::<Settings>(&content) else { return };
-    if current.path.is_some() {
-        return;
-    }
-    let Ok(legacy) = serde_json::from_str::<LegacySettings>(&content) else { return };
-    if legacy.paths.is_empty() {
-        return;
-    }
-    let migrated = Settings {
-        path: legacy.paths.into_iter().next(),
-        lint: legacy.lint,
-        excluded: current.excluded,
-    };
-    let _ = write_to(&migrated, global);
-}
-
-#[cfg(test)]
-mod tests_global_migrate {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn converts_paths_to_path() {
-        let tmp = TempDir::new().unwrap();
-        let global = tmp.path().join("settings.json");
-        std::fs::write(&global, r#"{"paths":["/my/catalog"]}"#).unwrap();
-        migrate_global_settings_at(&global);
-        let loaded = load_from(&global).unwrap();
-        assert_eq!(loaded.path, Some("/my/catalog".into()));
-    }
-
-    #[test]
-    fn takes_first_path() {
-        let tmp = TempDir::new().unwrap();
-        let global = tmp.path().join("settings.json");
-        std::fs::write(&global, r#"{"paths":["/first","/second"]}"#).unwrap();
-        migrate_global_settings_at(&global);
-        let loaded = load_from(&global).unwrap();
-        assert_eq!(loaded.path, Some("/first".into()));
-    }
-
-    #[test]
-    fn preserves_lint() {
-        let tmp = TempDir::new().unwrap();
-        let global = tmp.path().join("settings.json");
-        std::fs::write(
-            &global,
-            r#"{"paths":["/catalog"],"lint":{"rules":["no-style-blocks"]}}"#,
-        )
-        .unwrap();
-        migrate_global_settings_at(&global);
-        let loaded = load_from(&global).unwrap();
-        assert_eq!(loaded.path, Some("/catalog".into()));
-        assert_eq!(loaded.lint.unwrap().rules, vec!["no-style-blocks"]);
-    }
-
-    #[test]
-    fn skips_when_path_already_set() {
-        let tmp = TempDir::new().unwrap();
-        let global = tmp.path().join("settings.json");
-        std::fs::write(&global, r#"{"path":"/current"}"#).unwrap();
-        migrate_global_settings_at(&global);
-        let loaded = load_from(&global).unwrap();
-        assert_eq!(loaded.path, Some("/current".into()));
-    }
-
-    #[test]
-    fn skips_when_paths_empty() {
-        let tmp = TempDir::new().unwrap();
-        let global = tmp.path().join("settings.json");
-        std::fs::write(&global, r#"{"paths":[]}"#).unwrap();
-        migrate_global_settings_at(&global);
-        let loaded = load_from(&global).unwrap();
-        assert!(loaded.path.is_none());
-    }
-
-    #[test]
-    fn skips_nonexistent_file() {
-        let tmp = TempDir::new().unwrap();
-        migrate_global_settings_at(&tmp.path().join("nonexistent.json"));
-        assert!(!tmp.path().join("nonexistent.json").exists());
-    }
-}
-
-/// Seed `excluded` in the global settings.json with `["AGENTS\\.md"]` if the
-/// key is absent. Creates the file if it doesn't exist yet. Silently ignores
-/// errors. Users can change or clear the list — it is not re-seeded once set.
-pub fn ensure_global_excluded_defaults() {
-    let Ok(global) = global_config_path() else { return };
-    ensure_global_excluded_defaults_at(&global);
-}
-
-fn ensure_global_excluded_defaults_at(path: &Path) {
+fn ensure_global_defaults_at(path: &Path) {
     let content = if path.exists() {
         match std::fs::read_to_string(path) {
             Ok(c) => c,
@@ -319,80 +225,141 @@ fn ensure_global_excluded_defaults_at(path: &Path) {
     } else {
         "{}".to_string()
     };
-    let already_set = serde_json::from_str::<serde_json::Value>(&content)
-        .ok()
-        .and_then(|v| v.get("excluded").cloned())
-        .is_some();
-    if already_set {
-        return;
-    }
+    let Ok(raw) = serde_json::from_str::<serde_json::Value>(&content) else { return };
     let Ok(mut cfg) = serde_json::from_str::<Settings>(&content) else { return };
-    cfg.excluded = vec!["AGENTS\\.md".into()];
-    let _ = write_to(&cfg, path);
+    let mut dirty = false;
+
+    // 1. Migrate legacy paths → path
+    if cfg.path.is_none() {
+        if let Ok(legacy) = serde_json::from_str::<LegacySettings>(&content) {
+            if let Some(first) = legacy.paths.into_iter().next() {
+                cfg.path = Some(first);
+                dirty = true;
+            }
+        }
+    }
+
+    // 2. Seed excluded default (only if key is entirely absent)
+    if raw.get("excluded").is_none() {
+        cfg.excluded = vec!["AGENTS\\.md".into()];
+        dirty = true;
+    }
+
+    // 3. Seed lint defaults
+    if cfg.lint.is_none() {
+        cfg.lint = Some(LintConfig::default());
+        dirty = true;
+    }
+
+    if dirty {
+        let _ = write_to(&cfg, path);
+    }
 }
 
 #[cfg(test)]
-mod tests_global_excluded_defaults {
+mod tests_global_defaults {
     use super::*;
     use tempfile::TempDir;
 
     #[test]
-    fn seeds_excluded_when_key_absent() {
+    fn seeds_all_defaults_on_empty_file() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("settings.json");
         std::fs::write(&path, "{}").unwrap();
-        ensure_global_excluded_defaults_at(&path);
+        ensure_global_defaults_at(&path);
         let loaded = load_from(&path).unwrap();
         assert_eq!(loaded.excluded, vec!["AGENTS\\.md"]);
+        assert!(loaded.lint.is_some());
     }
 
     #[test]
-    fn creates_file_when_missing() {
+    fn creates_file_with_defaults_when_missing() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("settings.json");
-        ensure_global_excluded_defaults_at(&path);
+        ensure_global_defaults_at(&path);
         let loaded = load_from(&path).unwrap();
         assert_eq!(loaded.excluded, vec!["AGENTS\\.md"]);
+        assert!(loaded.lint.is_some());
     }
 
     #[test]
-    fn skips_when_excluded_key_present_and_non_empty() {
+    fn migrates_legacy_paths_to_path() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("settings.json");
-        std::fs::write(&path, r#"{"excluded":["custom\\.md"]}"#).unwrap();
-        ensure_global_excluded_defaults_at(&path);
+        std::fs::write(&path, r#"{"paths":["/catalog","/other"]}"#).unwrap();
+        ensure_global_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.path, Some("/catalog".into()));
+    }
+
+    #[test]
+    fn migration_preserves_lint_from_legacy_json() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"paths":["/catalog"],"lint":{"rules":["no-style-blocks"]}}"#,
+        )
+        .unwrap();
+        ensure_global_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.path, Some("/catalog".into()));
+        assert_eq!(loaded.lint.unwrap().rules, vec!["no-style-blocks"]);
+    }
+
+    #[test]
+    fn skips_migration_when_path_already_set() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"path":"/current","excluded":[],"lint":{"rules":[]}}"#).unwrap();
+        ensure_global_defaults_at(&path);
+        let loaded = load_from(&path).unwrap();
+        assert_eq!(loaded.path, Some("/current".into()));
+    }
+
+    #[test]
+    fn does_not_overwrite_existing_excluded() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::write(&path, r#"{"excluded":["custom\\.md"],"lint":{"rules":[]}}"#).unwrap();
+        ensure_global_defaults_at(&path);
         let loaded = load_from(&path).unwrap();
         assert_eq!(loaded.excluded, vec!["custom\\.md"]);
     }
 
     #[test]
-    fn skips_when_excluded_key_present_and_empty() {
+    fn respects_intentionally_empty_excluded() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("settings.json");
-        std::fs::write(&path, r#"{"excluded":[]}"#).unwrap();
-        ensure_global_excluded_defaults_at(&path);
+        std::fs::write(&path, r#"{"excluded":[],"lint":{"rules":[]}}"#).unwrap();
+        ensure_global_defaults_at(&path);
         let loaded = load_from(&path).unwrap();
         assert!(loaded.excluded.is_empty());
     }
 
     #[test]
-    fn preserves_existing_fields() {
+    fn no_write_when_all_defaults_already_set() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("settings.json");
-        std::fs::write(&path, r#"{"path":"/catalog"}"#).unwrap();
-        ensure_global_excluded_defaults_at(&path);
-        let loaded = load_from(&path).unwrap();
-        assert_eq!(loaded.path, Some("/catalog".into()));
-        assert_eq!(loaded.excluded, vec!["AGENTS\\.md"]);
+        let initial = r#"{"excluded":["AGENTS\\.md"],"lint":{"rules":["no-style-blocks"]}}"#;
+        std::fs::write(&path, initial).unwrap();
+        let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        ensure_global_defaults_at(&path);
+        let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(mtime_before, mtime_after, "file should not be rewritten");
     }
 }
 
-/// Ensure the resolved config file contains a `lint` section. If the file
-/// exists but the key is absent, write the defaults in place. Silently ignores
-/// all errors — this is a best-effort migration on every invocation.
+/// Ensure the resolved project config contains a `lint` section. Skips if the
+/// resolved config is the global settings.json — that is handled by
+/// `ensure_global_defaults`. Silently ignores errors.
 pub fn ensure_lint_defaults() {
     let Ok(cwd) = std::env::current_dir() else { return };
     let Ok(config_path) = find_config_from(&cwd) else { return };
+    // Global settings handled in ensure_global_defaults — avoid double read/write.
+    if global_config_path().map_or(false, |g| g == config_path) {
+        return;
+    }
     if !config_path.exists() {
         return;
     }
