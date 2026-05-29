@@ -2,7 +2,7 @@ use std::path::Path;
 use tempfile::TempDir;
 
 use ctlgr::settings::{
-    config_path_from, default_notes_dir, ensure_lint_defaults, expand_path, find_config_from,
+    config_path_from, default_catalog_dir, ensure_lint_defaults, expand_path, find_config_from,
     load_from, migrate_legacy_config, resolve_path, write_to, LintConfig, Settings,
 };
 
@@ -153,13 +153,13 @@ fn resolve_path_returns_configured_path() {
 }
 
 #[test]
-fn resolve_path_falls_back_to_notes_dir() {
+fn resolve_path_falls_back_to_catalog_dir() {
     let s = Settings { path: None, lint: None };
     let resolved = resolve_path(&s);
-    let default = default_notes_dir();
+    let default = default_catalog_dir();
     assert_eq!(resolved, default);
     assert!(resolved.to_string_lossy().contains(".ctlgr-cli"));
-    assert!(resolved.to_string_lossy().ends_with("notes"));
+    assert!(resolved.to_string_lossy().ends_with("catalog"));
 }
 
 // ── expand_path ────────────────────────────────────────────────────────────

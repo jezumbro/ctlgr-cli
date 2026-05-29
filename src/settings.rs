@@ -35,11 +35,11 @@ pub struct Settings {
     pub lint: Option<LintConfig>,
 }
 
-pub fn default_notes_dir() -> PathBuf {
+pub fn default_catalog_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("~"))
         .join(".ctlgr-cli")
-        .join("notes")
+        .join("catalog")
 }
 
 fn global_config_path() -> Result<PathBuf> {
@@ -106,9 +106,9 @@ pub fn write_to(settings: &Settings, path: &Path) -> Result<()> {
         .with_context(|| format!("writing {}", path.display()))
 }
 
-/// Resolve the catalog directory: configured path, or ~/.ctlgr-cli/notes/.
+/// Resolve the catalog directory: configured path, or ~/.ctlgr-cli/catalog/.
 pub fn resolve_path(settings: &Settings) -> PathBuf {
-    settings.path.as_deref().map(PathBuf::from).unwrap_or_else(default_notes_dir)
+    settings.path.as_deref().map(PathBuf::from).unwrap_or_else(default_catalog_dir)
 }
 
 /// Expand the resolved catalog directory into a list of .html and .md files.

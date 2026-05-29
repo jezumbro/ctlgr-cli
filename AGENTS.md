@@ -114,7 +114,7 @@ To change the path, delete `.ctlgr` and re-run `config init`. To revert to the d
 1. `.ctlgr.local` — personal overrides, not committed
 2. `.ctlgr` — per-directory config
 3. `~/.ctlgr-cli/settings.json` — global fallback
-4. `~/.ctlgr-cli/notes/` — hardcoded default (used when no path is configured)
+4. `~/.ctlgr-cli/catalog/` — hardcoded default (used when no path is configured)
 
 **Examples**
 
