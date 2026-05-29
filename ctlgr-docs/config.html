@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ctlgr config</title>
+</head>
+<body>
+  <article id="config">
+    <h1>ctlgr config</h1>
+    <p>Manage config files and the registered catalog directory.</p>
+    <pre><code>ctlgr config &lt;subcommand&gt;</code></pre>
+
+    <section id="config-files">
+      <h2>Config file resolution</h2>
+      <p>ctlgr walks up from the current working directory and uses the first config file it finds (first match wins):</p>
+      <ol>
+        <li><code>.ctlgr.local</code> — personal overrides, not committed</li>
+        <li><code>.ctlgr</code> — project config, committed to version control</li>
+        <li><code>~/.ctlgr-cli/settings.json</code> — global fallback</li>
+        <li><code>~/.ctlgr-cli/catalog/</code> — hardcoded default when no config is found</li>
+      </ol>
+      <p>Subdirectories inherit the nearest ancestor config automatically.</p>
+
+      <article id="migration" data-type="note">
+        <h3>Legacy migration</h3>
+        <p>
+          Older versions used <code>.ctlgr.json</code> / <code>.ctlgr.local.json</code>.
+          On every invocation ctlgr automatically migrates these to <code>.ctlgr</code> / <code>.ctlgr.local</code>
+          and removes the legacy file. Migration is skipped when the new-format target already exists.
+        </p>
+      </article>
+    </section>
+
+    <section id="subcommands">
+      <h2>Subcommands</h2>
+
+      <article id="init" data-command="config init" data-type="command">
+        <h3>init</h3>
+        <p>Create a config file in the current directory registering a catalog directory.</p>
+        <pre><code>ctlgr config init &lt;path&gt; [--local]</code></pre>
+        <dl>
+          <dt><code>&lt;path&gt;</code></dt>
+          <dd>Catalog directory to register. Must exist and be a directory.</dd>
+          <dt><code>--local</code></dt>
+          <dd>Write <code>.ctlgr.local</code> instead of <code>.ctlgr</code>. Add <code>.ctlgr.local</code> to <code>.gitignore</code>.</dd>
+        </dl>
+        <p>Errors if the target file already exists. To change the path: delete <code>.ctlgr</code> and re-run. To revert to the default: delete <code>.ctlgr</code>.</p>
+        <pre><code># Committed project config
+ctlgr config init ~/catalog
+
+# Personal local-only override
+ctlgr config init --local ~/my-catalog</code></pre>
+      </article>
+
+      <article id="list" data-command="config list" data-type="command">
+        <h3>list</h3>
+        <p>Show the resolved catalog path. Prefixes <code>(default)</code> when falling back to the hardcoded default.</p>
+        <pre><code>ctlgr config list</code></pre>
+      </article>
+    </section>
+
+    <section id="schema">
+      <h2>Config file schema</h2>
+      <pre><code>{
+  "path": "/Users/you/catalog"
+}</code></pre>
+      <dl>
+        <dt><code>path</code></dt>
+        <dd>Absolute path to the catalog directory. All <code>*.html</code> and <code>*.md</code> files under it are searched recursively. Newly added files are picked up automatically.</dd>
+      </dl>
+    </section>
+  </article>
+</body>
+</html>
