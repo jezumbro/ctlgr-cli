@@ -144,6 +144,22 @@ fn load_from_errors_on_invalid_json() {
     assert!(load_from(&path).is_err());
 }
 
+// ── save ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn save_writes_to_resolved_config() {
+    let _guard = CWD_LOCK.lock().unwrap();
+    let tmp = TempDir::new().unwrap();
+    let config = tmp.path().join(".ctlgr");
+    write_to(&Settings { path: None, lint: None, excluded: vec![] }, &config).unwrap();
+    std::env::set_current_dir(&tmp).unwrap();
+    let mut cfg = load_from(&config).unwrap();
+    cfg.path = Some("/saved-path".into());
+    ctlgr::settings::save(&cfg).unwrap();
+    let loaded = load_from(&config).unwrap();
+    assert_eq!(loaded.path, Some("/saved-path".into()));
+}
+
 // ── resolve_path ───────────────────────────────────────────────────────────
 
 #[test]
