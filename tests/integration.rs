@@ -290,23 +290,31 @@ fn search_md_with_text_filter() {
 // ── config init ───────────────────────────────────────────────────────────────
 
 #[test]
-fn config_init_creates_ctlgr() {
+fn config_init_creates_ctlgr_with_path() {
     let tmp = TempDir::new().unwrap();
+    let docs = tmp.path().join("docs");
+    std::fs::create_dir(&docs).unwrap();
     cmd()
         .args(["config", "init"])
+        .arg(&docs)
         .current_dir(&tmp)
         .assert()
         .success()
         .stdout(predicate::str::contains("created"));
     assert!(tmp.path().join(".ctlgr").exists());
     assert!(!tmp.path().join(".ctlgr.local").exists());
+    let content = std::fs::read_to_string(tmp.path().join(".ctlgr")).unwrap();
+    assert!(content.contains(docs.to_string_lossy().as_ref()));
 }
 
 #[test]
 fn config_init_local_creates_ctlgr_local() {
     let tmp = TempDir::new().unwrap();
+    let docs = tmp.path().join("docs");
+    std::fs::create_dir(&docs).unwrap();
     cmd()
         .args(["config", "init", "--local"])
+        .arg(&docs)
         .current_dir(&tmp)
         .assert()
         .success()
@@ -316,40 +324,10 @@ fn config_init_local_creates_ctlgr_local() {
 }
 
 #[test]
-fn config_init_twice_fails_with_already_exists() {
+fn config_init_nonexistent_path_errors() {
     let tmp = TempDir::new().unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
     cmd()
-        .args(["config", "init"])
-        .current_dir(&tmp)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("already exists"));
-}
-
-// ── config add ────────────────────────────────────────────────────────────────
-
-#[test]
-fn config_add_registers_directory() {
-    let tmp = TempDir::new().unwrap();
-    let docs = tmp.path().join("docs");
-    std::fs::create_dir(&docs).unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd()
-        .args(["config", "add"])
-        .arg(&docs)
-        .current_dir(&tmp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("added"));
-}
-
-#[test]
-fn config_add_nonexistent_path_errors() {
-    let tmp = TempDir::new().unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd()
-        .args(["config", "add", "/nonexistent/path/xyz/abc"])
+        .args(["config", "init", "/nonexistent/path/xyz/abc"])
         .current_dir(&tmp)
         .assert()
         .failure()
@@ -357,13 +335,12 @@ fn config_add_nonexistent_path_errors() {
 }
 
 #[test]
-fn config_add_file_not_directory_errors() {
+fn config_init_file_not_directory_errors() {
     let tmp = TempDir::new().unwrap();
     let f = tmp.path().join("afile.txt");
     std::fs::write(&f, "").unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
     cmd()
-        .args(["config", "add"])
+        .args(["config", "init"])
         .arg(&f)
         .current_dir(&tmp)
         .assert()
@@ -372,72 +349,28 @@ fn config_add_file_not_directory_errors() {
 }
 
 #[test]
-fn config_add_same_path_twice_is_idempotent() {
+fn config_init_twice_fails_with_already_exists() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd().args(["config", "init"]).arg(&docs).current_dir(&tmp).assert().success();
     cmd()
-        .args(["config", "add"])
+        .args(["config", "init"])
         .arg(&docs)
         .current_dir(&tmp)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("already registered"));
-}
-
-// ── config remove ─────────────────────────────────────────────────────────────
-
-#[test]
-fn config_remove_clears_path() {
-    let tmp = TempDir::new().unwrap();
-    let docs = tmp.path().join("docs");
-    std::fs::create_dir(&docs).unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
-    cmd()
-        .args(["config", "remove"])
-        .current_dir(&tmp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("removed"));
-}
-
-#[test]
-fn config_remove_when_no_path_prints_notice() {
-    let tmp = TempDir::new().unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd()
-        .args(["config", "remove"])
-        .current_dir(&tmp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("no path configured"));
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
 }
 
 // ── config list ───────────────────────────────────────────────────────────────
-
-#[test]
-fn config_list_shows_default_when_no_path_set() {
-    let tmp = TempDir::new().unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd()
-        .args(["config", "list"])
-        .current_dir(&tmp)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(".ctlgr-cli"))
-        .stdout(predicate::str::contains("notes"));
-}
 
 #[test]
 fn config_list_shows_registered_path() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd().args(["config", "init"]).arg(&docs).current_dir(&tmp).assert().success();
     cmd()
         .args(["config", "list"])
         .current_dir(&tmp)
@@ -447,19 +380,17 @@ fn config_list_shows_registered_path() {
 }
 
 #[test]
-fn config_add_then_remove_then_list_shows_default() {
+fn config_list_shows_default_when_no_config() {
     let tmp = TempDir::new().unwrap();
-    let docs = tmp.path().join("docs");
-    std::fs::create_dir(&docs).unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
-    cmd().args(["config", "remove"]).current_dir(&tmp).assert().success();
+    // Write a config with no path to shadow ancestors
+    std::fs::write(tmp.path().join(".ctlgr"), "{}").unwrap();
     cmd()
         .args(["config", "list"])
         .current_dir(&tmp)
         .assert()
         .success()
-        .stdout(predicate::str::contains(".ctlgr-cli"));
+        .stdout(predicate::str::contains(".ctlgr-cli"))
+        .stdout(predicate::str::contains("notes"));
 }
 
 // ── lint ──────────────────────────────────────────────────────────────────
@@ -566,8 +497,7 @@ fn lint_via_configured_path() {
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
     std::fs::write(docs.join("a.html"), "<article><h2>Clean</h2></article>").unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd().args(["config", "init"]).arg(&docs).current_dir(&tmp).assert().success();
     cmd().args(["lint"]).current_dir(&tmp).assert().success();
 }
 
@@ -576,8 +506,7 @@ fn lint_with_configured_path_but_no_html_files_errors() {
     let tmp = TempDir::new().unwrap();
     let docs = tmp.path().join("docs");
     std::fs::create_dir(&docs).unwrap();
-    cmd().args(["config", "init"]).current_dir(&tmp).assert().success();
-    cmd().args(["config", "add"]).arg(&docs).current_dir(&tmp).assert().success();
+    cmd().args(["config", "init"]).arg(&docs).current_dir(&tmp).assert().success();
     cmd()
         .args(["lint"])
         .current_dir(&tmp)
