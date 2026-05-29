@@ -162,7 +162,7 @@ fn resolve_files(args: &SearchArgs) -> Result<Vec<String>> {
     if files.is_empty() {
         anyhow::bail!(
             "no files found\n\
-             hint: run `ctlgr config add <path>` to register a search path"
+             hint: run `ctlgr config init <path>` to register a catalog directory"
         );
     }
 
