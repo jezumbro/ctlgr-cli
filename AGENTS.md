@@ -28,7 +28,7 @@ ctlgr search [<selector>] [flags]
 | `--jq <expr>`           | `-q`  | Filter JSON output with a jq expression                       | —              |
 | `--limit <n>`           | `-L`  | Maximum results                                               | `30`           |
 
-When `--file` is omitted, search expands the glob patterns registered in the resolved config file. Errors if no paths are configured.
+When `--file` is omitted, search expands the catalog directory registered in the resolved config file. Errors if no catalog directory is configured and the default `~/.ctlgr-cli/catalog/` is empty.
 
 **Selector** is a CSS selector (tag, class, id, attribute, combinators). When `--tag` is given without a selector, it becomes the selector. With neither, matches all elements (`*`).
 
@@ -133,9 +133,13 @@ ctlgr config list
 
 ```json
 {
-  "path": "/Users/you/catalog"
+  "path": "/Users/you/catalog",
+  "excluded": ["AGENTS\\.md", "drafts/"]
 }
 ```
+
+- `path` — catalog directory; all `*.html` and `*.md` files under it are searched recursively.
+- `excluded` — array of regex patterns; matching files are omitted from search and lint. Patterns are matched against the full file path. Invalid patterns are silently skipped. **Merged across all config levels** — patterns from `.ctlgr`, ancestor `.ctlgr` files, and `~/.ctlgr-cli/settings.json` are all applied together.
 
 ---
 
@@ -175,6 +179,7 @@ implementation details that should stay hidden.
 - `--text` does a case-insensitive substring match against all descendant text nodes joined together. Combine with a specific selector to avoid matching every ancestor element.
 - `--json` fields not in the requested list are omitted from output objects.
 - `--file` may be repeated; results from all files are interleaved in document order, capped at `--limit` total.
-- When `--file` is omitted, registered directories are searched recursively for `*.html` and `*.md` files at run time — newly added files are picked up automatically.
+- When `--file` is omitted, the catalog directory is searched recursively for `*.html` and `*.md` files at run time — newly added files are picked up automatically.
+- `excluded` patterns from all config files in the ancestor chain are merged and applied together.
 - Config resolution walks up from CWD; subdirectories automatically inherit the nearest ancestor config.
 - Exit code `0` on success (including zero results); non-zero on parse or I/O errors.
