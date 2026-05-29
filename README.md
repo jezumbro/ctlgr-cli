@@ -44,21 +44,22 @@ Search HTML catalog files using CSS selectors.
 ctlgr search [<selector>] [flags]
 ```
 
-| Flag                    | Short | Description                                        | Default      |
-| ----------------------- | ----- | -------------------------------------------------- | ------------ |
-| `--file <file>`         | `-f`  | HTML file(s) to search (repeatable)                | config paths |
-| `--tag <tag>`           | `-t`  | Filter by tag name                                 | —            |
-| `--attr <name[=value]>` | `-a`  | Filter by attribute presence or value (repeatable) | —            |
-| `--text <pattern>`      |       | Case-insensitive substring match on element text   | —            |
-| `--json <fields>`       |       | Output JSON: `tag,attrs,text,html,path`            | —            |
-| `--md`                  |       | Output results as Markdown                         | —            |
-| `--jq <expr>`           | `-q`  | Filter JSON output with a jq expression            | —            |
-| `--limit <n>`           | `-L`  | Maximum results                                    | `30`         |
+| Flag                    | Short | Description                                        | Default     |
+| ----------------------- | ----- | -------------------------------------------------- | ----------- |
+| `--file <file>`         | `-f`  | HTML file(s) to search (repeatable)                | config path |
+| `--tag <tag>`           | `-t`  | Filter by tag name                                 | —           |
+| `--attr <name[=value]>` | `-a`  | Filter by attribute presence or value (repeatable) | —           |
+| `--text <pattern>`      |       | Case-insensitive substring match on element text   | —           |
+| `--json <fields>`       |       | Output JSON: `tag,attrs,text,html,path`            | —           |
+| `--md`                  |       | Output results as Markdown                         | —           |
+| `--jq <expr>`           | `-q`  | Filter JSON output with a jq expression            | —           |
+| `--limit <n>`           | `-L`  | Maximum results                                    | `30`        |
 
-When `--file` is omitted, ctlgr searches all files registered with `ctlgr config add`.
+When `--file` is omitted, ctlgr searches all `*.html` and `*.md` files under the configured catalog
+directory. Files matching any `excluded` pattern are skipped.
 
 ```sh
-# All links across registered catalog files
+# All links across the configured catalog
 ctlgr search "a"
 
 # Text search: headings mentioning "config" with enclosing section context
@@ -73,22 +74,64 @@ ctlgr search "nav a" --json tag,attrs,text --file page.html
 
 ### config
 
-Manage search paths and config files.
+Manage the catalog directory and config files.
 
 ```sh
 ctlgr config <subcommand>
 ```
 
-| Subcommand      | Description                                              |
-| --------------- | -------------------------------------------------------- |
-| `init`          | Create `.ctlgr.json` in the current directory            |
-| `init --local`  | Create `.ctlgr.local.json` (gitignored, higher priority) |
-| `add <path>`    | Register a directory (searches `*.html` and `*.md`)      |
-| `remove <path>` | Unregister a directory                                   |
-| `list`          | Show all registered directories                          |
+| Subcommand            | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `init <path>`         | Create `.ctlgr` in the current directory with the given path |
+| `init --local <path>` | Create `.ctlgr.local` instead (gitignored, higher priority)  |
+| `list`                | Show the resolved catalog path                               |
 
-Config files are resolved by walking up from the current directory:
-`.ctlgr.local.json` → `.ctlgr.json` → `~/.ctlgr-cli/settings.json`
+Config resolution walks up from the current directory (first match wins for `path`/`lint`; all
+levels are merged for `excluded`):
+
+1. `.ctlgr.local` — personal overrides, not committed
+2. `.ctlgr` — per-directory config, committed
+3. `~/.ctlgr-cli/settings.json` — global fallback
+4. `~/.ctlgr-cli/catalog/` — hardcoded default
+
+To change the path, delete `.ctlgr` and re-run `config init`. Legacy `.ctlgr.json` files are
+auto-migrated to `.ctlgr` on first run.
+
+**Config file schema** (`.ctlgr`):
+
+```json
+{
+  "path": "/Users/you/catalog",
+  "excluded": ["AGENTS\\.md", "drafts/"],
+  "lint": {
+    "rules": ["no-style-blocks", "no-inline-styles", "prefer-html"]
+  }
+}
+```
+
+`excluded` is an array of regex patterns matched against the full file path. Patterns are merged
+across all config levels, so global personal exclusions work alongside project ones.
+
+### lint
+
+Lint catalog HTML files for style violations.
+
+```sh
+ctlgr lint [flags]
+```
+
+| Flag            | Short | Description                                      |
+| --------------- | ----- | ------------------------------------------------ |
+| `--file <file>` | `-f`  | Files to lint (repeatable; defaults to catalog)  |
+| `--write`       |       | Fix violations in place; convert `.md` → `.html` |
+
+Rules (all enabled by default; configure via `lint.rules` in the config file):
+
+| Rule               | Description                                |
+| ------------------ | ------------------------------------------ |
+| `no-style-blocks`  | `<style>` blocks are not allowed           |
+| `no-inline-styles` | `style="..."` attributes are not allowed   |
+| `prefer-html`      | `.md` files should be converted to `.html` |
 
 ### update
 
@@ -106,6 +149,7 @@ notice to stderr when a new version is available.
 ```sh
 cargo build
 cargo test
+cargo bench --bench startup -- --test   # run startup benchmarks in test mode
 ```
 
 ### Dev tools
