@@ -323,6 +323,37 @@ fn config_init_local_creates_ctlgr_local() {
     assert!(!tmp.path().join(".ctlgr").exists());
 }
 
+// Exercises main.rs line 57: process::exit(1) when convert::run errors
+#[test]
+fn convert_exits_1_on_missing_file() {
+    let tmp = TempDir::new().unwrap();
+    cmd()
+        .args(["convert", "--file", "/nonexistent/ctlgr_cli_test_missing.md"])
+        .current_dir(&tmp)
+        .assert()
+        .failure()
+        .code(1);
+}
+
+// Exercises main.rs line 78: write_to error when CWD is not writable
+#[cfg(unix)]
+#[test]
+fn config_init_fails_when_cwd_not_writable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let docs = tmp.path().join("docs");
+    std::fs::create_dir(&docs).unwrap();
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = cmd()
+        .args(["config", "init"])
+        .arg(&docs)
+        .current_dir(tmp.path())
+        .output()
+        .unwrap();
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!result.status.success());
+}
+
 #[test]
 fn config_init_nonexistent_path_errors() {
     let tmp = TempDir::new().unwrap();
