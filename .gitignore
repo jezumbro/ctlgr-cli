@@ -12,3 +12,6 @@
 
 # Local-only ctlgr config (not committed)
 .ctlgr.local.json
+
+# graphify knowledge-graph output
+.graphify/
