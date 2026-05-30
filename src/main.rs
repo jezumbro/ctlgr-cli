@@ -52,7 +52,12 @@ fn main() -> Result<()> {
         Commands::Config { command } => run_config(command),
         Commands::Update => update::run_update(),
         Commands::Lint(args) => lint::run(&args),
-        Commands::Convert(args) => convert::run(&args),
+        Commands::Convert(args) => {
+            if convert::run(&args).is_err() {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
     }
 }
 

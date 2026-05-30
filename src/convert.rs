@@ -34,7 +34,7 @@ pub fn run(args: &ConvertArgs) -> Result<()> {
     }
 
     if failed {
-        std::process::exit(1);
+        anyhow::bail!("one or more files failed to convert");
     }
     Ok(())
 }

@@ -369,3 +369,104 @@ fn convert_via_dir_flag() {
     assert!(!tmp.path().join("a.md").exists());
     assert!(!tmp.path().join("b.md").exists());
 }
+
+// ── run() error aggregation ────────────────────────────────────────────────
+
+#[test]
+fn run_returns_error_when_file_fails() {
+    let args = ConvertArgs {
+        file: vec!["/nonexistent/ctlgr_test_missing.md".to_string()],
+        dir: None,
+        dry_run: false,
+    };
+    assert!(run(&args).is_err());
+}
+
+#[test]
+fn run_returns_error_after_processing_multiple_files_with_one_failing() {
+    let tmp = TempDir::new().unwrap();
+    let good = tmp.path().join("good.md");
+    std::fs::write(&good, "# Good").unwrap();
+    let args = ConvertArgs {
+        file: vec![
+            good.to_string_lossy().to_string(),
+            "/nonexistent/ctlgr_bad.md".to_string(),
+        ],
+        dir: None,
+        dry_run: false,
+    };
+    let result = run(&args);
+    assert!(result.is_err(), "run should propagate the per-file failure");
+    // good.md was converted before the failure
+    assert!(tmp.path().join("good.html").exists());
+}
+
+// ── resolve_files error path ───────────────────────────────────────────────
+
+#[test]
+fn run_returns_error_for_invalid_glob_pattern() {
+    // A dir value containing an unclosed bracket creates an invalid glob pattern,
+    // which makes glob::glob() return Err — exercises the resolve_files ? Err branch
+    // and the run() ? Err branch on line 26.
+    let args = ConvertArgs {
+        file: vec![],
+        dir: Some("[unclosed_bracket".to_string()),
+        dry_run: false,
+    };
+    assert!(run(&args).is_err());
+}
+
+// ── I/O error branches ─────────────────────────────────────────────────────
+
+#[cfg(unix)]
+#[test]
+fn convert_md_to_html_fails_if_existing_html_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    let html = tmp.path().join("page.html");
+    std::fs::write(&md, "# Hello").unwrap();
+    std::fs::write(&html, "<html><body></body></html>").unwrap();
+    // make html unreadable
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let result = convert_md_to_html(&md.to_string_lossy(), false);
+    // restore before any assertion (ensures TempDir cleanup works)
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("reading"), "expected 'reading' in: {msg}");
+}
+
+#[cfg(unix)]
+#[test]
+fn convert_md_to_html_fails_if_merged_write_unwritable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    let html = tmp.path().join("page.html");
+    std::fs::write(&md, "# Hello").unwrap();
+    std::fs::write(&html, "<html><body><p>old</p></body></html>").unwrap();
+    // readable but not writable
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let result = convert_md_to_html(&md.to_string_lossy(), false);
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("writing"), "expected 'writing' in: {msg}");
+}
+
+#[cfg(unix)]
+#[test]
+fn convert_md_to_html_fails_if_new_html_dir_unwritable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello").unwrap();
+    // make parent dir read-only so the new .html can't be created
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = convert_md_to_html(&md.to_string_lossy(), false);
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("writing"), "expected 'writing' in: {msg}");
+}
