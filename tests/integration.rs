@@ -516,70 +516,18 @@ fn lint_with_configured_path_but_no_html_files_errors() {
 }
 
 #[test]
-fn lint_check_flags_md_file_as_prefer_html() {
+fn lint_skips_md_files_silently() {
     let tmp = TempDir::new().unwrap();
     let page = tmp.path().join("page.md");
     std::fs::write(&page, "# Title\n\nContent.").unwrap();
+    // .md files are skipped — lint exits 0 with no output
     cmd()
         .args(["lint", "--file"])
         .arg(&page)
         .assert()
-        .failure()
-        .stdout(predicate::str::contains("prefer-html"));
-}
-
-#[test]
-fn lint_write_converts_md_to_html() {
-    let tmp = TempDir::new().unwrap();
-    let page = tmp.path().join("page.md");
-    std::fs::write(&page, "# Title\n\nContent.").unwrap();
-    cmd()
-        .args(["lint", "--write", "--file"])
-        .arg(&page)
-        .assert()
         .success()
-        .stdout(predicate::str::contains("converted to"));
-    assert!(!page.exists(), ".md file should be removed");
-    assert!(tmp.path().join("page.html").exists(), ".html file should be created");
-}
-
-#[test]
-fn lint_write_md_produces_valid_html_structure() {
-    let tmp = TempDir::new().unwrap();
-    let page = tmp.path().join("page.md");
-    std::fs::write(&page, "# My Doc\n\nHello world.").unwrap();
-    cmd()
-        .args(["lint", "--write", "--file"])
-        .arg(&page)
-        .assert()
-        .success();
-    let html = std::fs::read_to_string(tmp.path().join("page.html")).unwrap();
-    assert!(html.contains("<!DOCTYPE html>"));
-    assert!(html.contains("<title>My Doc</title>"));
-    assert!(html.contains("Hello world"));
-}
-
-#[test]
-fn lint_write_md_merges_when_html_already_exists() {
-    let tmp = TempDir::new().unwrap();
-    let html_file = tmp.path().join("page.html");
-    let md_file = tmp.path().join("page.md");
-    std::fs::write(
-        &html_file,
-        "<html><body><article id=\"existing\"><h2>Old Content</h2></article></body></html>",
-    )
-    .unwrap();
-    std::fs::write(&md_file, "# New Section\n\nNew content.").unwrap();
-    cmd()
-        .args(["lint", "--write", "--file"])
-        .arg(&md_file)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("merged into"));
-    assert!(!md_file.exists());
-    let merged = std::fs::read_to_string(&html_file).unwrap();
-    assert!(merged.contains("Old Content"), "existing content preserved");
-    assert!(merged.contains("New content"), "new markdown content added");
+        .stdout(predicate::str::is_empty());
+    assert!(page.exists(), ".md must remain untouched");
 }
 
 #[test]
@@ -591,7 +539,7 @@ fn any_command_writes_default_lint_rules_to_existing_config() {
     let config = std::fs::read_to_string(tmp.path().join(".ctlgr")).unwrap();
     assert!(config.contains("\"lint\""), "lint section should be written by any command");
     assert!(config.contains("no-style-blocks"));
-    assert!(config.contains("prefer-html"));
+    assert!(!config.contains("prefer-html"), "prefer-html must not appear in default rules");
 }
 
 #[test]
@@ -614,9 +562,10 @@ fn lint_writes_default_rules_to_existing_config() {
 #[test]
 fn lint_respects_disabled_rule_in_config() {
     let tmp = TempDir::new().unwrap();
+    // Only no-style-blocks enabled; no-inline-styles disabled
     std::fs::write(
         tmp.path().join(".ctlgr"),
-        r#"{"lint":{"rules":["no-style-blocks","prefer-html"]}}"#,
+        r#"{"lint":{"rules":["no-style-blocks"]}}"#,
     )
     .unwrap();
     let page = tmp.path().join("page.html");

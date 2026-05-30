@@ -33,3 +33,11 @@ the `ctlgr search` discovery step first before writing or modifying any file.
 New source modules must have a matching `tests/<module>.rs`. Inline `#[cfg(test)]` blocks are
 reserved for cases where private access is unavoidable and extraction to a separate file would
 require exposing implementation details that should stay hidden.
+
+<!-- SPECKIT START -->
+
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan at
+`specs/001-convert-command/plan.md`
+
+<!-- SPECKIT END -->
