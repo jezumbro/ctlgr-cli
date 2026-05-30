@@ -38,6 +38,6 @@ require exposing implementation details that should stay hidden.
 
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan at
-`specs/001-convert-command/plan.md`
+`../ctlgr-docs/specs/001-convert-command/plan.md`
 
 <!-- SPECKIT END -->
