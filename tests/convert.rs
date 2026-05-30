@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use ctlgr::convert::{
-    convert_md_to_html, md_html_path, md_to_html, md_to_html_fragment, merge_html,
+    convert_md_to_html, md_html_path, md_to_html, md_to_html_fragment, merge_html, run,
+    ConvertArgs,
 };
 use ctlgr::lint::check_html;
 use tempfile::TempDir;
@@ -189,6 +190,19 @@ fn convert_prints_merged_into_when_html_exists() {
 // ── dry-run ────────────────────────────────────────────────────────────────
 
 #[test]
+fn dry_run_merge_does_not_modify_html() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    let original = "<html><body><p>old</p></body></html>";
+    std::fs::write(&html, original).unwrap();
+    std::fs::write(&md, "## New").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), true).unwrap();
+    assert!(md.exists(), ".md must remain in dry-run");
+    assert_eq!(std::fs::read_to_string(&html).unwrap(), original, "html unchanged in dry-run");
+}
+
+#[test]
 fn dry_run_does_not_create_html() {
     let tmp = TempDir::new().unwrap();
     let md = tmp.path().join("page.md");
@@ -229,6 +243,103 @@ fn dry_run_via_cli_flag() {
     cmd.args(["convert", "--dry-run", "--file", &md_str]).assert().success();
     assert!(md.exists(), ".md must remain after dry-run");
     assert!(!tmp.path().join("page.html").exists(), ".html must not be created");
+}
+
+// ── run() direct calls ─────────────────────────────────────────────────────
+
+#[test]
+fn run_converts_file_via_args() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello\n\nWorld.").unwrap();
+    let args = ConvertArgs {
+        file: vec![md.to_string_lossy().to_string()],
+        dir: None,
+        dry_run: false,
+    };
+    run(&args).unwrap();
+    assert!(tmp.path().join("page.html").exists());
+    assert!(!md.exists());
+}
+
+#[test]
+fn run_dry_run_via_args() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello").unwrap();
+    let args = ConvertArgs {
+        file: vec![md.to_string_lossy().to_string()],
+        dir: None,
+        dry_run: true,
+    };
+    run(&args).unwrap();
+    assert!(md.exists(), ".md must remain after dry-run");
+    assert!(!tmp.path().join("page.html").exists(), ".html must not be created");
+}
+
+#[test]
+fn run_with_dir_via_args() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("a.md"), "# A").unwrap();
+    std::fs::write(tmp.path().join("b.md"), "# B").unwrap();
+    let args = ConvertArgs {
+        file: vec![],
+        dir: Some(tmp.path().to_string_lossy().to_string()),
+        dry_run: false,
+    };
+    run(&args).unwrap();
+    assert!(tmp.path().join("a.html").exists());
+    assert!(tmp.path().join("b.html").exists());
+}
+
+#[test]
+fn run_with_empty_dir_succeeds_with_no_files() {
+    let tmp = TempDir::new().unwrap();
+    let args = ConvertArgs {
+        file: vec![],
+        dir: Some(tmp.path().to_string_lossy().to_string()),
+        dry_run: false,
+    };
+    run(&args).unwrap();
+}
+
+#[test]
+fn run_without_flags_uses_settings_catalog_dir() {
+    // Exercises the resolve_files settings-fallback path.
+    // dry_run=true prevents any filesystem mutations even if catalog has .md files.
+    let args = ConvertArgs {
+        file: vec![],
+        dir: None,
+        dry_run: true,
+    };
+    run(&args).unwrap();
+}
+
+#[test]
+fn convert_md_to_html_returns_error_for_missing_file() {
+    let result = convert_md_to_html("/nonexistent/path/ctlgr_test_missing.md", false);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("reading"), "error should mention reading: {msg}");
+}
+
+#[test]
+fn run_merges_when_html_exists_via_args() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    std::fs::write(&html, "<html><body><p>old</p></body></html>").unwrap();
+    std::fs::write(&md, "## New Section").unwrap();
+    let args = ConvertArgs {
+        file: vec![md.to_string_lossy().to_string()],
+        dir: None,
+        dry_run: false,
+    };
+    run(&args).unwrap();
+    assert!(!md.exists());
+    let content = std::fs::read_to_string(&html).unwrap();
+    assert!(content.contains("old"));
+    assert!(content.contains("New Section"));
 }
 
 // ── CLI integration ────────────────────────────────────────────────────────
