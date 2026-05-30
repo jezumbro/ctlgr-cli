@@ -1,4 +1,4 @@
-use ctlgr::{lint, search, settings, update};
+use ctlgr::{convert, lint, search, settings, update};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -23,6 +23,8 @@ enum Commands {
     Update,
     /// Lint catalog HTML files for style violations
     Lint(lint::LintArgs),
+    /// Convert .md files to .html catalog documents
+    Convert(convert::ConvertArgs),
 }
 
 #[derive(Subcommand)]
@@ -50,6 +52,12 @@ fn main() -> Result<()> {
         Commands::Config { command } => run_config(command),
         Commands::Update => update::run_update(),
         Commands::Lint(args) => lint::run(&args),
+        Commands::Convert(args) => {
+            if convert::run(&args).is_err() {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
     }
 }
 

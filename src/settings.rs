@@ -10,11 +10,7 @@ pub struct LintConfig {
 
 impl LintConfig {
     pub fn default_rules() -> Vec<String> {
-        vec![
-            "no-style-blocks".to_string(),
-            "no-inline-styles".to_string(),
-            "prefer-html".to_string(),
-        ]
+        vec!["no-style-blocks".to_string(), "no-inline-styles".to_string()]
     }
 
     pub fn is_enabled(&self, rule: &str) -> bool {

@@ -350,7 +350,7 @@ fn lint_config_default_enables_all_rules() {
     let cfg = LintConfig::default();
     assert!(cfg.is_enabled("no-style-blocks"));
     assert!(cfg.is_enabled("no-inline-styles"));
-    assert!(cfg.is_enabled("prefer-html"));
+    assert!(!cfg.is_enabled("prefer-html"), "prefer-html must not be a default rule");
 }
 
 #[test]
@@ -391,7 +391,7 @@ fn ensure_lint_defaults_writes_rules_to_existing_config() {
     let rules = loaded.lint.unwrap().rules;
     assert!(rules.contains(&"no-style-blocks".to_string()));
     assert!(rules.contains(&"no-inline-styles".to_string()));
-    assert!(rules.contains(&"prefer-html".to_string()));
+    assert!(!rules.contains(&"prefer-html".to_string()), "prefer-html must not be in default rules");
 }
 
 #[test]

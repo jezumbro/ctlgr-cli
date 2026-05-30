@@ -1,0 +1,472 @@
+use assert_cmd::Command;
+use ctlgr::convert::{
+    convert_md_to_html, md_html_path, md_to_html, md_to_html_fragment, merge_html, run,
+    ConvertArgs,
+};
+use ctlgr::lint::check_html;
+use tempfile::TempDir;
+
+// ── md_to_html ─────────────────────────────────────────────────────────────
+
+#[test]
+fn md_to_html_produces_html_document() {
+    let html = md_to_html("# Hello\n\nSome text.");
+    assert!(html.contains("<!DOCTYPE html>"));
+    assert!(html.contains("<html"));
+    assert!(html.contains("<body>"));
+    assert!(html.contains("</body>"));
+}
+
+#[test]
+fn md_to_html_uses_first_h1_as_title() {
+    let html = md_to_html("# My Page\n\nContent.");
+    assert!(html.contains("<title>My Page</title>"));
+}
+
+#[test]
+fn md_to_html_falls_back_to_document_title_when_no_h1() {
+    let html = md_to_html("Just some text with no heading.");
+    assert!(html.contains("<title>Document</title>"));
+}
+
+#[test]
+fn md_to_html_renders_markdown_content() {
+    let html = md_to_html("# Title\n\nA paragraph.\n\n- item one\n- item two");
+    assert!(html.contains("<h1>"));
+    assert!(html.contains("<p>"));
+    assert!(html.contains("<ul>"));
+    assert!(html.contains("item one"));
+}
+
+#[test]
+fn md_to_html_generates_no_style_violations() {
+    let html = md_to_html("# Title\n\nParagraph with **bold** and *italic*.");
+    let violations = check_html(&html, "f.html");
+    assert!(
+        violations.is_empty(),
+        "generated HTML has style violations: {:?}",
+        violations.iter().map(|v| &v.rule).collect::<Vec<_>>()
+    );
+}
+
+// ── md_html_path ───────────────────────────────────────────────────────────
+
+#[test]
+fn md_html_path_replaces_md_extension() {
+    assert_eq!(md_html_path("docs/readme.md"), "docs/readme.html");
+}
+
+#[test]
+fn md_html_path_appends_html_when_no_md_suffix() {
+    assert_eq!(md_html_path("README"), "README.html");
+}
+
+// ── merge_html ─────────────────────────────────────────────────────────────
+
+#[test]
+fn merge_html_inserts_before_closing_body() {
+    let existing = "<html><body><p>old</p></body></html>";
+    let fragment = "<p>new</p>";
+    let merged = merge_html(existing, fragment);
+    assert!(merged.contains("<p>old</p>"));
+    assert!(merged.contains("<p>new</p>"));
+    let new_pos = merged.find("<p>new</p>").unwrap();
+    let close_pos = merged.find("</body>").unwrap();
+    assert!(new_pos < close_pos);
+}
+
+#[test]
+fn merge_html_appends_when_no_body_tag() {
+    let existing = "<p>old</p>";
+    let fragment = "<p>new</p>";
+    let merged = merge_html(existing, fragment);
+    assert!(merged.contains("old"));
+    assert!(merged.contains("new"));
+}
+
+#[test]
+fn merge_html_uses_last_body_tag() {
+    let existing = "<body><p>one</p></body><body><p>two</p></body>";
+    let fragment = "<p>appended</p>";
+    let merged = merge_html(existing, fragment);
+    assert!(merged.contains("appended"));
+}
+
+// ── md_to_html_fragment ────────────────────────────────────────────────────
+
+#[test]
+fn md_to_html_fragment_renders_without_document_wrapper() {
+    let frag = md_to_html_fragment("# Title\n\nParagraph.");
+    assert!(!frag.contains("<!DOCTYPE"));
+    assert!(!frag.contains("<html"));
+    assert!(frag.contains("<h1>"));
+    assert!(frag.contains("<p>"));
+}
+
+// ── convert_md_to_html ─────────────────────────────────────────────────────
+
+#[test]
+fn convert_md_to_html_creates_html_file() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Title\n\nContent.").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), false).unwrap();
+    let html = tmp.path().join("page.html");
+    assert!(html.exists());
+    let content = std::fs::read_to_string(&html).unwrap();
+    assert!(content.contains("<title>Title</title>"));
+}
+
+#[test]
+fn convert_md_to_html_removes_md_file() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), false).unwrap();
+    assert!(!md.exists());
+}
+
+#[test]
+fn convert_md_to_html_html_has_no_style_violations() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("clean.md");
+    std::fs::write(&md, "# Clean\n\nNo styles here.\n\n- list item").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), false).unwrap();
+    let html_path = tmp.path().join("clean.html");
+    let source = std::fs::read_to_string(&html_path).unwrap();
+    let violations = check_html(&source, "clean.html");
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn convert_md_to_html_merges_when_html_already_exists() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    std::fs::write(
+        &html,
+        "<html><body><article id=\"existing\"><h2>Existing</h2></article></body></html>",
+    )
+    .unwrap();
+    std::fs::write(&md, "# New Section\n\nNew content.").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), false).unwrap();
+    assert!(!md.exists(), ".md should be removed after merge");
+    let content = std::fs::read_to_string(&html).unwrap();
+    assert!(content.contains("Existing"), "existing content preserved");
+    assert!(content.contains("New content"), "new content added");
+}
+
+#[test]
+fn convert_md_to_html_merged_content_before_closing_body() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    std::fs::write(&html, "<html><body><p>old</p></body></html>").unwrap();
+    std::fs::write(&md, "## New").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), false).unwrap();
+    let content = std::fs::read_to_string(&html).unwrap();
+    let new_pos = content.find("New").unwrap();
+    let close_pos = content.find("</body>").unwrap();
+    assert!(new_pos < close_pos, "new content should be before </body>");
+}
+
+#[test]
+fn convert_prints_merged_into_when_html_exists() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    std::fs::write(&html, "<html><body><p>old</p></body></html>").unwrap();
+    std::fs::write(&md, "## New").unwrap();
+    // Run via CLI to capture stdout
+    let md_str = md.to_string_lossy().to_string();
+    let html_str = html.to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("ctlgr").unwrap();
+    let output = cmd.args(["convert", "--file", &md_str]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("merged into"), "expected 'merged into' in: {stdout}");
+    assert!(stdout.contains(&html_str) || stdout.contains("page.html"));
+}
+
+// ── dry-run ────────────────────────────────────────────────────────────────
+
+#[test]
+fn dry_run_merge_does_not_modify_html() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    let original = "<html><body><p>old</p></body></html>";
+    std::fs::write(&html, original).unwrap();
+    std::fs::write(&md, "## New").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), true).unwrap();
+    assert!(md.exists(), ".md must remain in dry-run");
+    assert_eq!(std::fs::read_to_string(&html).unwrap(), original, "html unchanged in dry-run");
+}
+
+#[test]
+fn dry_run_does_not_create_html() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Title\n\nContent.").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), true).unwrap();
+    let html = tmp.path().join("page.html");
+    assert!(!html.exists(), "html should not be created in dry-run");
+}
+
+#[test]
+fn dry_run_does_not_remove_md() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Title\n\nContent.").unwrap();
+    convert_md_to_html(&md.to_string_lossy(), true).unwrap();
+    assert!(md.exists(), ".md should still exist in dry-run");
+}
+
+#[test]
+fn dry_run_prints_would_convert() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Title\n\nContent.").unwrap();
+    let md_str = md.to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("ctlgr").unwrap();
+    let output = cmd.args(["convert", "--dry-run", "--file", &md_str]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("converted to"), "expected status line in dry-run: {stdout}");
+}
+
+#[test]
+fn dry_run_via_cli_flag() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello").unwrap();
+    let md_str = md.to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("ctlgr").unwrap();
+    cmd.args(["convert", "--dry-run", "--file", &md_str]).assert().success();
+    assert!(md.exists(), ".md must remain after dry-run");
+    assert!(!tmp.path().join("page.html").exists(), ".html must not be created");
+}
+
+// ── run() direct calls ─────────────────────────────────────────────────────
+
+#[test]
+fn run_converts_file_via_args() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello\n\nWorld.").unwrap();
+    let args = ConvertArgs {
+        file: vec![md.to_string_lossy().to_string()],
+        dir: None,
+        dry_run: false,
+    };
+    run(&args).unwrap();
+    assert!(tmp.path().join("page.html").exists());
+    assert!(!md.exists());
+}
+
+#[test]
+fn run_dry_run_via_args() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello").unwrap();
+    let args = ConvertArgs {
+        file: vec![md.to_string_lossy().to_string()],
+        dir: None,
+        dry_run: true,
+    };
+    run(&args).unwrap();
+    assert!(md.exists(), ".md must remain after dry-run");
+    assert!(!tmp.path().join("page.html").exists(), ".html must not be created");
+}
+
+#[test]
+fn run_with_dir_via_args() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("a.md"), "# A").unwrap();
+    std::fs::write(tmp.path().join("b.md"), "# B").unwrap();
+    let args = ConvertArgs {
+        file: vec![],
+        dir: Some(tmp.path().to_string_lossy().to_string()),
+        dry_run: false,
+    };
+    run(&args).unwrap();
+    assert!(tmp.path().join("a.html").exists());
+    assert!(tmp.path().join("b.html").exists());
+}
+
+#[test]
+fn run_with_empty_dir_succeeds_with_no_files() {
+    let tmp = TempDir::new().unwrap();
+    let args = ConvertArgs {
+        file: vec![],
+        dir: Some(tmp.path().to_string_lossy().to_string()),
+        dry_run: false,
+    };
+    run(&args).unwrap();
+}
+
+#[test]
+fn run_without_flags_uses_settings_catalog_dir() {
+    // Exercises the resolve_files settings-fallback path.
+    // dry_run=true prevents any filesystem mutations even if catalog has .md files.
+    let args = ConvertArgs {
+        file: vec![],
+        dir: None,
+        dry_run: true,
+    };
+    run(&args).unwrap();
+}
+
+#[test]
+fn convert_md_to_html_returns_error_for_missing_file() {
+    let result = convert_md_to_html("/nonexistent/path/ctlgr_test_missing.md", false);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("reading"), "error should mention reading: {msg}");
+}
+
+#[test]
+fn run_merges_when_html_exists_via_args() {
+    let tmp = TempDir::new().unwrap();
+    let html = tmp.path().join("page.html");
+    let md = tmp.path().join("page.md");
+    std::fs::write(&html, "<html><body><p>old</p></body></html>").unwrap();
+    std::fs::write(&md, "## New Section").unwrap();
+    let args = ConvertArgs {
+        file: vec![md.to_string_lossy().to_string()],
+        dir: None,
+        dry_run: false,
+    };
+    run(&args).unwrap();
+    assert!(!md.exists());
+    let content = std::fs::read_to_string(&html).unwrap();
+    assert!(content.contains("old"));
+    assert!(content.contains("New Section"));
+}
+
+// ── CLI integration ────────────────────────────────────────────────────────
+
+#[test]
+fn convert_via_file_flag() {
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello\n\nWorld.").unwrap();
+    let md_str = md.to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("ctlgr").unwrap();
+    cmd.args(["convert", "--file", &md_str]).assert().success();
+    assert!(tmp.path().join("page.html").exists());
+    assert!(!md.exists());
+}
+
+#[test]
+fn convert_via_dir_flag() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("a.md"), "# A").unwrap();
+    std::fs::write(tmp.path().join("b.md"), "# B").unwrap();
+    let dir_str = tmp.path().to_string_lossy().to_string();
+    let mut cmd = Command::cargo_bin("ctlgr").unwrap();
+    cmd.args(["convert", "--dir", &dir_str]).assert().success();
+    assert!(tmp.path().join("a.html").exists());
+    assert!(tmp.path().join("b.html").exists());
+    assert!(!tmp.path().join("a.md").exists());
+    assert!(!tmp.path().join("b.md").exists());
+}
+
+// ── run() error aggregation ────────────────────────────────────────────────
+
+#[test]
+fn run_returns_error_when_file_fails() {
+    let args = ConvertArgs {
+        file: vec!["/nonexistent/ctlgr_test_missing.md".to_string()],
+        dir: None,
+        dry_run: false,
+    };
+    assert!(run(&args).is_err());
+}
+
+#[test]
+fn run_returns_error_after_processing_multiple_files_with_one_failing() {
+    let tmp = TempDir::new().unwrap();
+    let good = tmp.path().join("good.md");
+    std::fs::write(&good, "# Good").unwrap();
+    let args = ConvertArgs {
+        file: vec![
+            good.to_string_lossy().to_string(),
+            "/nonexistent/ctlgr_bad.md".to_string(),
+        ],
+        dir: None,
+        dry_run: false,
+    };
+    let result = run(&args);
+    assert!(result.is_err(), "run should propagate the per-file failure");
+    // good.md was converted before the failure
+    assert!(tmp.path().join("good.html").exists());
+}
+
+// ── resolve_files error path ───────────────────────────────────────────────
+
+#[test]
+fn run_returns_error_for_invalid_glob_pattern() {
+    // A dir value containing an unclosed bracket creates an invalid glob pattern,
+    // which makes glob::glob() return Err — exercises the resolve_files ? Err branch
+    // and the run() ? Err branch on line 26.
+    let args = ConvertArgs {
+        file: vec![],
+        dir: Some("[unclosed_bracket".to_string()),
+        dry_run: false,
+    };
+    assert!(run(&args).is_err());
+}
+
+// ── I/O error branches ─────────────────────────────────────────────────────
+
+#[cfg(unix)]
+#[test]
+fn convert_md_to_html_fails_if_existing_html_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    let html = tmp.path().join("page.html");
+    std::fs::write(&md, "# Hello").unwrap();
+    std::fs::write(&html, "<html><body></body></html>").unwrap();
+    // make html unreadable
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let result = convert_md_to_html(&md.to_string_lossy(), false);
+    // restore before any assertion (ensures TempDir cleanup works)
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("reading"), "expected 'reading' in: {msg}");
+}
+
+#[cfg(unix)]
+#[test]
+fn convert_md_to_html_fails_if_merged_write_unwritable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    let html = tmp.path().join("page.html");
+    std::fs::write(&md, "# Hello").unwrap();
+    std::fs::write(&html, "<html><body><p>old</p></body></html>").unwrap();
+    // readable but not writable
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let result = convert_md_to_html(&md.to_string_lossy(), false);
+    std::fs::set_permissions(&html, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("writing"), "expected 'writing' in: {msg}");
+}
+
+#[cfg(unix)]
+#[test]
+fn convert_md_to_html_fails_if_new_html_dir_unwritable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let md = tmp.path().join("page.md");
+    std::fs::write(&md, "# Hello").unwrap();
+    // make parent dir read-only so the new .html can't be created
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+    let result = convert_md_to_html(&md.to_string_lossy(), false);
+    std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("writing"), "expected 'writing' in: {msg}");
+}
